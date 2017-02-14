@@ -85,7 +85,12 @@ public abstract class ClusteringGenomicHMMSegmenter<DATA, HIDDEN> {
     public List<Pair<SimpleInterval, HIDDEN>> findSegments() {
         makeSureParametersHaveBeenLearned();
         final ClusteringGenomicHMM<DATA, HIDDEN> model = makeModel();
-        List<Integer> states = ViterbiAlgorithm.apply(data, positions, model);
+        final ForwardBackwardAlgorithm.Result<DATA, SimpleInterval, Integer> fbResult =
+                ForwardBackwardAlgorithm.apply(data, positions, model);
+        List<Integer> states = IntStream.range(0, positions.size())
+                .map(n -> MathUtils.maxElementIndex(new IndexRange(0, numStates()).mapToDouble(s -> fbResult.logProbability(n, s))))
+                .boxed().collect(Collectors.toList());
+
         List<Pair<SimpleInterval, HIDDEN>> result = new ArrayList<>();
 
         int beginningOfCurrentSegment = 0;
