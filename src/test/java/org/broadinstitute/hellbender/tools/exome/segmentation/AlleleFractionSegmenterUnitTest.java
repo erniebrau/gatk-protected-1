@@ -52,7 +52,7 @@ public final class AlleleFractionSegmenterUnitTest {
                 .mapToDouble(n -> Math.abs(segmentMinorFractions[n] - truthMinorFractions.get(n)))
                 .average().getAsDouble();
 
-        Assert.assertEquals(averageMinorFractionError, 0, 0.01);
+        Assert.assertEquals(averageMinorFractionError, 0, 0.02);
     }
 
     @Test

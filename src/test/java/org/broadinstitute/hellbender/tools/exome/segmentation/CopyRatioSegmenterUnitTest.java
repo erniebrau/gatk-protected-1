@@ -48,7 +48,7 @@ public final class CopyRatioSegmenterUnitTest {
                 .mapToDouble(n -> Math.abs(segmentCopyRatios[n] - trueLog2CopyRatioSequence.get(n)))
                 .average().getAsDouble();
 
-        Assert.assertEquals(averageCopyRatioError, 0, 0.025);
+        Assert.assertEquals(averageCopyRatioError, 0, 0.04);
     }
 
     protected static double generateData(final double trueStandardDeviation, final Double cr, final RandomGenerator rng) {
