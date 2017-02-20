@@ -1,0 +1,9 @@
+{
+  "wgs_cnv_workflow.input_bam_list": "$__input_bam_list__",
+  "wgs_cnv_workflow.ref_fasta": "$__ref_fasta__",
+  "wgs_cnv_workflow.ref_fasta_fai": "$__ref_fasta_fai__",
+  "wgs_cnv_workflow.ref_fasta_dict": "$__ref_fasta_dict__",
+  "wgs_cnv_workflow.gatk_jar": "$__gatk_jar__",
+  "wgs_cnv_workflow.PoN": "$__PoN__",
+  "wgs_cnv_workflow.wgsBinSize": "10000"
+}

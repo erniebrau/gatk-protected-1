@@ -8,7 +8,6 @@
 # tumor_entity  tumor_bam  tumor_bam_index  normal_entity  normal_bam  normal_bam_index  <--second input
 # etc...
 #
-# - set isWGS variable to true or false to specify whether to run a WGS or WES workflow respectively
 #
 # - file names will use the entity ID specified, but inside the file, the bam SM tag will typically be used.
 #
@@ -27,9 +26,8 @@
 #
 #############
 
-workflow case_gatk_acnv_workflow {
+workflow wgs_cnv_workflow {
     # Workflow input files
-    File target_file
     File ref_fasta
     File ref_fasta_dict
     File ref_fasta_fai
@@ -39,55 +37,24 @@ workflow case_gatk_acnv_workflow {
     String gatk_jar
 
     # Workflow output directories and other options
-    Boolean isWGS
     Int wgsBinSize
 
-    # Java maximum memory options
-    Int calculate_target_coverage_memory
-    Int normalize_somatic_read_count_memory
-    Int whole_genome_coverage_memory
-
-  call PadTargets {
-    input:
-        target_file=target_file,
-        gatk_jar=gatk_jar,
-        isWGS=isWGS,
-        mem=1
-  }
-
   scatter (row in bam_list_array) {
-
-    call CalculateTargetCoverage {
-      input:
-          entity_id=row[0],
-          padded_target_file=PadTargets.padded_target_file,
-          input_bam=row[1],
-          bam_idx=row[2],
-          ref_fasta=ref_fasta,
-          ref_fasta_fai=ref_fasta_fai,
-          ref_fasta_dict=ref_fasta_dict,
-          gatk_jar=gatk_jar,
-          isWGS=isWGS,
-          mem=calculate_target_coverage_memory
-    }  
 
     call WholeGenomeCoverage {
       input:
           entity_id=row[0],
-          target_file=PadTargets.padded_target_file,
           input_bam=row[1],
           bam_idx=row[2],
-          coverage_file=CalculateTargetCoverage.gatk_coverage_file,
           ref_fasta=ref_fasta,
           ref_fasta_fai=ref_fasta_fai,
           ref_fasta_dict=ref_fasta_dict,
           gatk_jar=gatk_jar,
-          isWGS=isWGS,
           wgsBinSize=wgsBinSize,
-          mem=whole_genome_coverage_memory
+          mem=8
     }
 
-    call AnnotateTargets as TumorAnnotateTargets {
+    call AnnotateTargets {
       input:
           entity_id=row[0],
           gatk_jar=gatk_jar,
@@ -103,7 +70,7 @@ workflow case_gatk_acnv_workflow {
           entity_id=row[0],
           gatk_jar=gatk_jar,
           coverage_file=WholeGenomeCoverage.gatk_coverage_file,
-          annotated_targets=TumorAnnotateTargets.annotated_targets,
+          annotated_targets=AnnotateTargets.annotated_targets,
           mem=4
     }
 
@@ -114,7 +81,7 @@ workflow case_gatk_acnv_workflow {
           padded_target_file=WholeGenomeCoverage.gatk_target_file,
           pon=PoN,
           gatk_jar=gatk_jar,
-          mem=normalize_somatic_read_count_memory
+          mem=8
     }
 
     call PerformSegmentation {
@@ -139,96 +106,22 @@ workflow case_gatk_acnv_workflow {
   }
 }
 
-# Pad the target file. This was found to help sensitivity and specificity. This step should only be altered
-# by advanced users. Note that by changing this, you need to have a PoN that also reflects the change.
-task PadTargets {
-    File target_file
-    Int padding
-    String gatk_jar
-    Boolean isWGS
-    Int mem
-
-    # Note that when isWGS is true, this task is still called by the workflow.
-    # In that case, an empty target file is created and passed to the CalculateTargetCoverage 
-    # task to satisfy input and output requirements.
-    # Regardless of the value of isWGS, the output of PadTargets is passed to WholeGenomeCoverage, 
-    # which then outputs the target file accordingly (see below)
-    command {
-        if [ ${isWGS} = false ]; \
-          then java -Xmx${mem}g -jar ${gatk_jar} PadTargets --targets ${target_file} --output targets.padded.tsv \
-                --padding ${padding} --help false --version false --verbosity INFO --QUIET false; \
-          else touch targets.padded.tsv; \
-        fi
-    }
-
-    output {
-        File padded_target_file = "targets.padded.tsv"
-    }
-
-    #runtime {
-    #    docker: "gatk-protected/a1"
-    #}
-}
-
-# Calculate the target proportional coverage
-task CalculateTargetCoverage {
-    String entity_id
-    File padded_target_file
-    File input_bam
-    File bam_idx
-    File ref_fasta
-    File ref_fasta_fai
-    File ref_fasta_dict
-    String gatk_jar
-    Boolean isWGS
-    Int mem
-
-    # Note that when isWGS is true, this task is still called by the workflow.
-    # In that case, an empty coverage file is created and passed to the WholeGenomeCoverage
-    # task to satisfy input and output requirements.
-    command <<<
-        if [ ${isWGS} = false ]
-          then
-              java -Xmx${mem}g -jar ${gatk_jar} CalculateTargetCoverage --output ${entity_id}.coverage.tsv \
-                --groupBy SAMPLE --transform PCOV --targets ${padded_target_file} --targetInformationColumns FULL \
-                --input ${input_bam} --reference ${ref_fasta}  \
-                --interval_set_rule UNION --interval_padding 0 \
-                --secondsBetweenProgressUpdates 10.0  \
-                --createOutputBamIndex true --help false --version false --verbosity INFO --QUIET false
-          else
-              touch ${entity_id}.coverage.tsv
-        fi
-    >>>
-
-    output {
-        File gatk_coverage_file = "${entity_id}.coverage.tsv"
-    }
-}
-
 # Calculate coverage on Whole Genome Sequence using Spark.
 # This task automatically creates a target output file.
 task WholeGenomeCoverage {
     String entity_id
-    File coverage_file
-    File target_file
     File input_bam
     File bam_idx
     File ref_fasta
     File ref_fasta_fai
     File ref_fasta_dict
     String gatk_jar
-    Boolean isWGS
     Int wgsBinSize
     Int mem
 
-    # If isWGS is set to true, the task produces WGS coverage and targets that are passed to downstream tasks
-    # If not, coverage and target files (received from upstream) for WES are passed downstream
     command {
-        if [ ${isWGS} = true ]; \
-          then java -Xmx${mem}g -jar ${gatk_jar} SparkGenomeReadCounts --outputFile ${entity_id}.coverage.tsv \
-                --reference ${ref_fasta} --input ${input_bam} --sparkMaster local[1] --binsize ${wgsBinSize}; \
-          else ln -s ${coverage_file} ${entity_id}.coverage.tsv; ln -s ${target_file} ${entity_id}.coverage.tsv.targets.tsv; \
-        fi
+        java -Xmx${mem}g -jar ${gatk_jar} SparkGenomeReadCounts --outputFile ${entity_id}.coverage.tsv \
+                --reference ${ref_fasta} --input ${input_bam} --sparkMaster local[1] --binsize ${wgsBinSize}
     }
 
     output {
@@ -270,7 +163,7 @@ task CorrectGCBias {
     # If GC correction is disabled, then the coverage file gets passed downstream unchanged
     command {
           java -Xmx${mem}g -jar ${gatk_jar} CorrectGCBias --input ${coverage_file} \
-            --output ${entity_id}.gc_corrected_coverage.tsv --targets ${annotated_targets}; \
+            --output ${entity_id}.gc_corrected_coverage.tsv --targets ${annotated_targets}
     }
 
     output {

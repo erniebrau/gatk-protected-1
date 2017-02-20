@@ -2,16 +2,14 @@
   "case_gatk_acnv_workflow.input_bam_list": "$__input_bam_list__",
   "case_gatk_acnv_workflow.ref_fasta": "$__ref_fasta__",
   "case_gatk_acnv_workflow.ref_fasta_fai": "$__ref_fasta_fai__",
+  "case_gatk_acnv_workflow.ref_fasta_dict": "$__ref_fasta_dict__",
   "case_gatk_acnv_workflow.target_file": "$__target_file__",
   "case_gatk_acnv_workflow.gatk_jar": "$__gatk_jar__",
   "case_gatk_acnv_workflow.calculate_target_coverage_memory": "4",
   "case_gatk_acnv_workflow.whole_genome_coverage_memory": "4",
-  "case_gatk_acnv_workflow.ref_fasta_dict": "$__ref_fasta_dict__",
-  "case_gatk_acnv_workflow.keep_duplicate_reads": "true",
   "case_gatk_acnv_workflow.PoN": "$__PoN__",
   "case_gatk_acnv_workflow.normalize_somatic_read_count_memory": "4",
   "case_gatk_acnv_workflow.PadTargets.padding": "250",
-  "case_gatk_acnv_workflow.plots_dir": "plots/",
   "case_gatk_acnv_workflow.isWGS": "$__IS_WGS__",
   "case_gatk_acnv_workflow.wgsBinSize": "10000"
 }
