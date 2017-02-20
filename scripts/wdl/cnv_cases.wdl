@@ -62,7 +62,7 @@ workflow case_gatk_acnv_workflow {
 
   scatter (row in bam_list_array) {
 
-    call CalculateTargetCoverage as TumorCalculateTargetCoverage {
+    call CalculateTargetCoverage {
       input:
           entity_id=row[0],
           padded_target_file=PadTargets.padded_target_file,
@@ -77,13 +77,13 @@ workflow case_gatk_acnv_workflow {
           mem=calculate_target_coverage_memory
     }  
 
-    call WholeGenomeCoverage as TumorWholeGenomeCoverage {
+    call WholeGenomeCoverage {
       input:
           entity_id=row[0],
           target_file=PadTargets.padded_target_file,
           input_bam=row[1],
           bam_idx=row[2],
-          coverage_file=TumorCalculateTargetCoverage.gatk_coverage_file,
+          coverage_file=CalculateTargetCoverage.gatk_coverage_file,
           ref_fasta=ref_fasta,
           ref_fasta_fai=ref_fasta_fai,
           ref_fasta_dict=ref_fasta_dict,
@@ -97,27 +97,27 @@ workflow case_gatk_acnv_workflow {
       input:
           entity_id=row[0],
           gatk_jar=gatk_jar,
-          target_file=TumorWholeGenomeCoverage.gatk_target_file,
+          target_file=WholeGenomeCoverage.gatk_target_file,
           ref_fasta=ref_fasta,
           ref_fasta_fai=ref_fasta_fai,
           ref_fasta_dict=ref_fasta_dict,
           mem=4
     }
 
-    call CorrectGCBias as TumorCorrectGCBias {
+    call CorrectGCBias {
       input:
           entity_id=row[0],
           gatk_jar=gatk_jar,
-          coverage_file=TumorWholeGenomeCoverage.gatk_coverage_file,
+          coverage_file=WholeGenomeCoverage.gatk_coverage_file,
           annotated_targets=TumorAnnotateTargets.annotated_targets,
           mem=4
     }
 
-    call NormalizeSomaticReadCounts as TumorNormalizeSomaticReadCounts {
+    call NormalizeSomaticReadCounts {
       input:
           entity_id=row[0],
-          coverage_file=TumorCorrectGCBias.gatk_cnv_coverage_file_gcbias,
-          padded_target_file=TumorWholeGenomeCoverage.gatk_target_file,
+          coverage_file=CorrectGCBias.gatk_cnv_coverage_file_gcbias,
+          padded_target_file=WholeGenomeCoverage.gatk_target_file,
           pon=PoN,
           gatk_jar=gatk_jar,
           mem=normalize_somatic_read_count_memory
@@ -125,113 +125,25 @@ workflow case_gatk_acnv_workflow {
 
 
     ##TODO: replace with PErformCopyRatioSegmentation
-    call PerformSegmentation as TumorPerformSeg {
+    call PerformSegmentation {
       input:
           entity_id=row[0],
           gatk_jar=gatk_jar,
-          tn_file=TumorNormalizeSomaticReadCounts.tn_file,
-
+          tn_file=NormalizeSomaticReadCounts.tn_file,
           mem=2
     }
-
-    call Caller as TumorCaller {
-      input:
-          entity_id=row[0],
-          gatk_jar=gatk_jar,
-          tn_file=TumorNormalizeSomaticReadCounts.tn_file,
-          seg_file=TumorPerformSeg.seg_file,
-          mem=2
-    }
-
-
-
 
     call PlotSegmentedCopyRatio {
       input:
           entity_id=row[0],
           gatk_jar=gatk_jar,
-          tn_file=TumorNormalizeSomaticReadCounts.tn_file,
-          pre_tn_file=TumorNormalizeSomaticReadCounts.pre_tn_file,
-          called_file=TumorCaller.called_file,
+          tn_file=NormalizeSomaticReadCounts.tn_file,
+          pre_tn_file=NormalizeSomaticReadCounts.pre_tn_file,
+          segments_file=PerformSegmentation.seg_file,
           ref_fasta_dict=ref_fasta_dict,
           output_dir="${plots_dir}CopyRatio_Plots/${row[0]}/",
           mem=4
     }
-
-    call PlotACNVResults {
-      input:
-          entity_id=row[0],
-          gatk_jar=gatk_jar,
-          tumor_hets=BayesianHetPulldownPaired.tumor_hets,
-          acnv_segments=AllelicCNV.acnv_final_segs,
-          tn_file=TumorNormalizeSomaticReadCounts.tn_file,
-          ref_fasta_dict=ref_fasta_dict,
-          output_dir="${plots_dir}ACNV_plots/${row[0]}",
-          mem=4
-    }
-
-    call CalculateTargetCoverage as NormalCalculateTargetCoverage {
-      input:
-          entity_id=row[3],
-          padded_target_file=PadTargets.padded_target_file,
-          input_bam=row[4],
-          bam_idx=row[5],
-          ref_fasta=ref_fasta,
-          ref_fasta_fai=ref_fasta_fai,
-          ref_fasta_dict=ref_fasta_dict,
-          gatk_jar=gatk_jar,
-          keep_duplicate_reads=keep_duplicate_reads,
-          isWGS=isWGS,
-          mem=calculate_target_coverage_memory
-    }
-
-    call WholeGenomeCoverage as NormalWholeGenomeCoverage {
-      input:
-          entity_id=row[3],
-          target_file=PadTargets.padded_target_file,
-          input_bam=row[4],
-          bam_idx=row[5],
-          coverage_file=NormalCalculateTargetCoverage.gatk_coverage_file,
-          ref_fasta=ref_fasta,
-          ref_fasta_fai=ref_fasta_fai,
-          ref_fasta_dict=ref_fasta_dict,
-          gatk_jar=gatk_jar,
-          isWGS=isWGS,
-          wgsBinSize=wgsBinSize,
-          mem=whole_genome_coverage_memory
-    }
-
-    call AnnotateTargets as NormalAnnotateTargets{
-      input:
-          entity_id=row[3],
-          gatk_jar=gatk_jar,
-          target_file=NormalWholeGenomeCoverage.gatk_target_file,
-          ref_fasta=ref_fasta,
-          ref_fasta_fai=ref_fasta_fai,
-          ref_fasta_dict=ref_fasta_dict,
-          mem=4
-    }
-
-    call CorrectGCBias as NormalCorrectGCBias {
-      input:
-          entity_id=row[3],
-          gatk_jar=gatk_jar,
-          coverage_file=NormalWholeGenomeCoverage.gatk_coverage_file,
-          annotated_targets=NormalAnnotateTargets.annotated_targets,
-          mem=4
-    }
-
-    call NormalizeSomaticReadCounts as NormalNormalizeSomaticReadCounts {
-      input:
-          entity_id=row[3],
-          coverage_file=NormalCorrectGCBias.gatk_cnv_coverage_file_gcbias,
-          padded_target_file=NormalWholeGenomeCoverage.gatk_target_file,
-          pon=PoN,
-          gatk_jar=gatk_jar,
-          mem=normalize_somatic_read_count_memory
-    }
-
-
   }
 }
 
@@ -399,17 +311,15 @@ task NormalizeSomaticReadCounts {
 }
 
 # Segment the tangent normalized coverage profile.
-##TODO: replace with PErformCopyRatioSegmentation
 task PerformSegmentation {
     String entity_id
-
     String gatk_jar
     File tn_file
     Int mem
 
     command {
         java -Xmx${mem}g -jar ${gatk_jar} PerformSegmentation --tangentNormalized ${tn_file} \
-         --output ${entity_id}.seg --log2Input true
+         -S ${entity_id}.seg  -initialNumStates 7
     }
 
     output {
@@ -424,7 +334,7 @@ task PlotSegmentedCopyRatio {
     String gatk_jar
     File tn_file
     File pre_tn_file
-    File called_file
+    File segments_file
     File ref_fasta_dict
     String output_dir
     Int mem
@@ -432,7 +342,7 @@ task PlotSegmentedCopyRatio {
     command {
         mkdir -p ${output_dir} && \
         java -Xmx${mem}g -jar ${gatk_jar} PlotSegmentedCopyRatio --tangentNormalized ${tn_file} \
-         --preTangentNormalized ${pre_tn_file} --segments ${called_file} \
+         --preTangentNormalized ${pre_tn_file} --segments ${segments_file} \
          -SD ${ref_fasta_dict} \
          --output ${output_dir} --outputPrefix ${entity_id}
     }
