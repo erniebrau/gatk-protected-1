@@ -13,9 +13,11 @@ import org.broadinstitute.hellbender.utils.SimpleInterval;
 import org.broadinstitute.hellbender.utils.Utils;
 import org.broadinstitute.hellbender.utils.param.ParamUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * @author David Benjamin &lt;davidben@broadinstitute.org&gt;
@@ -27,8 +29,7 @@ public final class CopyRatioSegmenter extends ScalarHMMSegmenter<Double> {
     private static final double MAX_REASONABLE_CAUCHY_WIDTH = 1.0;
     private static final double MIN_LOG_2_COPY_RATIO = -5.0;
     private static final double MAX_LOG_2_COPY_RATIO = 5.0;
-    private static final double MIN_INITIAL_LOG_2_COPY_RATIO = -3.0;
-    private static final double MAX_INITIAL_LOG_2_COPY_RATIO = 2.0;
+
 
     /**
      * @param initialNumStates  A liberal estimate of the number of hidden minor allele fraction values to
@@ -46,9 +47,16 @@ public final class CopyRatioSegmenter extends ScalarHMMSegmenter<Double> {
      * @param K the initial number of hidden states
      */
     private static List<Double> initialLog2CopyRatios(final int K) {
-        ParamUtils.isPositive(K, "must have at least one non-constant state");
-        return Doubles.asList(GATKProtectedMathUtils.createEvenlySpacedPoints(MIN_INITIAL_LOG_2_COPY_RATIO, MAX_INITIAL_LOG_2_COPY_RATIO, K));
+        final List<Double> result = new ArrayList<>();
+        result.add(MIN_LOG_2_COPY_RATIO);       // 0
+        result.add(ParamUtils.log2(0.5));       // 1
+        result.add(0.0);   // 2
+        IntStream.range(3, K).forEach(n -> result.add(ParamUtils.log2(n / 2.0)));
+        return result;
     }
+
+    @Override
+    protected void relearnHiddenStateValues(final ExpectationStep eStep) { }
 
     public List<ModeledSegment> getModeledSegments() {
         final List<Pair<SimpleInterval, Double>> segmentation = findSegments();

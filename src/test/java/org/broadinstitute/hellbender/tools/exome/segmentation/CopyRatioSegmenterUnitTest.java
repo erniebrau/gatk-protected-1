@@ -5,6 +5,7 @@ import org.apache.commons.math3.random.RandomGenerator;
 import org.apache.commons.math3.random.RandomGeneratorFactory;
 import org.broadinstitute.hellbender.tools.exome.*;
 import org.broadinstitute.hellbender.utils.SimpleInterval;
+import org.broadinstitute.hellbender.utils.param.ParamUtils;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -20,7 +21,7 @@ public final class CopyRatioSegmenterUnitTest {
     public void testSegmentation() {
         final RandomGenerator rng = RandomGeneratorFactory.createRandomGenerator(new Random(563));
 
-        final List<Double> trueLog2CopyRatios = Arrays.asList(-2.0, 0.0, 1.4);
+        final List<Double> trueLog2CopyRatios = Arrays.asList(-5.0, ParamUtils.log2(0.5), ParamUtils.log2(1.0), ParamUtils.log2(1.5), ParamUtils.log2(2.0));
         final double trueMemoryLength = 1e5;
         final double trueStandardDeviation = 0.2;
 

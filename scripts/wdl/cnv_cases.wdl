@@ -19,8 +19,8 @@
 # - THIS SCRIPT SHOULD BE CONSIDERED OF "BETA" QUALITY
 #
 # - Example invocation:
-#    java -jar cromwell.jar run case_gatk_acnv_workflow.wdl myParameters.json
-# - See case_gatk_acnv_workflow_template.json for a template json file to modify with your own parameters (please save
+#    java -jar cromwell.jar run cnv_cases.wdl myParameters.json
+# - See cnv_cases.json for a template json file to modify with your own parameters (please save
 #    your modified version with a different filename and do not commit to gatk-protected repo).
 #
 # - Some call inputs might seem out of place - consult with the comments in task definitions for details
@@ -33,40 +33,17 @@ workflow case_gatk_acnv_workflow {
     File ref_fasta
     File ref_fasta_dict
     File ref_fasta_fai
-    File common_snp_list
     File input_bam_list
     Array[Array[String]] bam_list_array = read_tsv(input_bam_list)
     File PoN
     String gatk_jar
 
-    # Input parameters of the PerformSegmentation tool
-    Float seg_param_alpha
-    Int seg_param_nperm
-    String seg_param_pmethod
-    Int seg_param_minWidth
-    Int seg_param_kmax
-    Int seg_param_nmin
-    Float seg_param_eta
-    Float seg_param_trim
-    String seg_param_undoSplits
-    Float seg_param_undoPrune
-    Int seg_param_undoSD
-
     # CalculateTargetCoverage options
-    Boolean disable_all_read_filters
     Boolean keep_duplicate_reads
-    Boolean disable_sequence_dictionary_validation
-    String transform
-    String grouping
 
-    # Input parameters of GetBayesianHetCoverage tool
-    Float stringency
-    Int read_depth_threshold
 
     # Workflow output directories and other options
     String plots_dir
-    String conversion_dir
-    Boolean enable_gc_correction
     Boolean isWGS
     Int wgsBinSize
 
@@ -95,11 +72,7 @@ workflow case_gatk_acnv_workflow {
           ref_fasta_fai=ref_fasta_fai,
           ref_fasta_dict=ref_fasta_dict,
           gatk_jar=gatk_jar,
-          disable_sequence_dictionary_validation=disable_sequence_dictionary_validation,
-          disable_all_read_filters=disable_all_read_filters,
           keep_duplicate_reads=keep_duplicate_reads,
-          transform=transform,
-          grouping=grouping,
           isWGS=isWGS,
           mem=calculate_target_coverage_memory
     }  
@@ -128,7 +101,6 @@ workflow case_gatk_acnv_workflow {
           ref_fasta=ref_fasta,
           ref_fasta_fai=ref_fasta_fai,
           ref_fasta_dict=ref_fasta_dict,
-          enable_gc_correction=enable_gc_correction,
           mem=4
     }
 
@@ -138,7 +110,6 @@ workflow case_gatk_acnv_workflow {
           gatk_jar=gatk_jar,
           coverage_file=TumorWholeGenomeCoverage.gatk_coverage_file,
           annotated_targets=TumorAnnotateTargets.annotated_targets,
-          enable_gc_correction=enable_gc_correction,
           mem=4
     }
 
@@ -152,22 +123,14 @@ workflow case_gatk_acnv_workflow {
           mem=normalize_somatic_read_count_memory
     }
 
+
+    ##TODO: replace with PErformCopyRatioSegmentation
     call PerformSegmentation as TumorPerformSeg {
       input:
           entity_id=row[0],
           gatk_jar=gatk_jar,
           tn_file=TumorNormalizeSomaticReadCounts.tn_file,
-          seg_param_alpha=seg_param_alpha,
-          seg_param_nperm=seg_param_nperm,
-          seg_param_pmethod=seg_param_pmethod,
-          seg_param_minWidth=seg_param_minWidth,
-          seg_param_kmax=seg_param_kmax,
-          seg_param_nmin=seg_param_nmin,
-          seg_param_eta=seg_param_eta,
-          seg_param_trim=seg_param_trim,
-          seg_param_undoSplits=seg_param_undoSplits,
-          seg_param_undoPrune=seg_param_undoPrune,
-          seg_param_undoSD=seg_param_undoSD,
+
           mem=2
     }
 
@@ -180,33 +143,8 @@ workflow case_gatk_acnv_workflow {
           mem=2
     }
 
-    call BayesianHetPulldownPaired {
-      input:
-          entity_id_tumor=row[0],
-          entity_id_normal=row[3],
-          gatk_jar=gatk_jar,
-          ref_fasta=ref_fasta,
-          ref_fasta_fai=ref_fasta_fai,
-          ref_fasta_dict=ref_fasta_dict,
-          tumor_bam=row[1],
-          tumor_bam_idx=row[2],
-          normal_bam=row[4],
-          normal_bam_idx=row[5],
-          common_snp_list=common_snp_list,
-          stringency=stringency,
-          read_depth_threshold=read_depth_threshold,
-          mem=4
-    }
 
-    call AllelicCNV {
-      input:
-          entity_id=row[0],
-          gatk_jar=gatk_jar,
-          tumor_hets=BayesianHetPulldownPaired.tumor_hets,
-          called_file=TumorCaller.called_file,
-          tn_file=TumorNormalizeSomaticReadCounts.tn_file,
-          mem=4
-    }
+
 
     call PlotSegmentedCopyRatio {
       input:
@@ -232,17 +170,6 @@ workflow case_gatk_acnv_workflow {
           mem=4
     }
 
-    call ConvertACNVResults {
-      input:
-          entity_id=row[0],
-          gatk_jar=gatk_jar,
-          tumor_hets=BayesianHetPulldownPaired.tumor_hets,
-          acnv_segments=AllelicCNV.acnv_final_segs,
-          tn_file=TumorNormalizeSomaticReadCounts.tn_file,
-          output_dir="${conversion_dir}conversion/${row[0]}",
-          mem=4
-    }
-
     call CalculateTargetCoverage as NormalCalculateTargetCoverage {
       input:
           entity_id=row[3],
@@ -253,11 +180,7 @@ workflow case_gatk_acnv_workflow {
           ref_fasta_fai=ref_fasta_fai,
           ref_fasta_dict=ref_fasta_dict,
           gatk_jar=gatk_jar,
-          disable_sequence_dictionary_validation=disable_sequence_dictionary_validation,
-          disable_all_read_filters=disable_all_read_filters,
           keep_duplicate_reads=keep_duplicate_reads,
-          transform=transform,
-          grouping=grouping,
           isWGS=isWGS,
           mem=calculate_target_coverage_memory
     }
@@ -286,7 +209,6 @@ workflow case_gatk_acnv_workflow {
           ref_fasta=ref_fasta,
           ref_fasta_fai=ref_fasta_fai,
           ref_fasta_dict=ref_fasta_dict,
-          enable_gc_correction=enable_gc_correction,
           mem=4
     }
 
@@ -296,7 +218,6 @@ workflow case_gatk_acnv_workflow {
           gatk_jar=gatk_jar,
           coverage_file=NormalWholeGenomeCoverage.gatk_coverage_file,
           annotated_targets=NormalAnnotateTargets.annotated_targets,
-          enable_gc_correction=enable_gc_correction,
           mem=4
     }
 
@@ -310,33 +231,7 @@ workflow case_gatk_acnv_workflow {
           mem=normalize_somatic_read_count_memory
     }
 
-    call PerformSegmentation as NormalPerformSeg {
-      input:
-          entity_id=row[3],
-          gatk_jar=gatk_jar,
-          tn_file=NormalNormalizeSomaticReadCounts.tn_file,
-          seg_param_alpha=seg_param_alpha,
-          seg_param_nperm=seg_param_nperm,
-          seg_param_pmethod=seg_param_pmethod,
-          seg_param_minWidth=seg_param_minWidth,
-          seg_param_kmax=seg_param_kmax,
-          seg_param_nmin=seg_param_nmin,
-          seg_param_eta=seg_param_eta,
-          seg_param_trim=seg_param_trim,
-          seg_param_undoSplits=seg_param_undoSplits,
-          seg_param_undoPrune=seg_param_undoPrune,
-          seg_param_undoSD=seg_param_undoSD,
-          mem=2
-    }
 
-    call Caller as NormalCaller {
-      input:
-          entity_id=row[3],
-          gatk_jar=gatk_jar,
-          tn_file=NormalNormalizeSomaticReadCounts.tn_file,
-          seg_file=NormalPerformSeg.seg_file,
-          mem=2
-    }
   }
 }
 
@@ -375,17 +270,13 @@ task PadTargets {
 task CalculateTargetCoverage {
     String entity_id
     File padded_target_file
-    String transform
-    String grouping
     Boolean keep_duplicate_reads
-    Boolean disable_all_read_filters
     File input_bam
     File bam_idx
     File ref_fasta
     File ref_fasta_fai
     File ref_fasta_dict
     String gatk_jar
-    Boolean disable_sequence_dictionary_validation
     Boolean isWGS
     Int mem
 
@@ -396,11 +287,11 @@ task CalculateTargetCoverage {
         if [ ${isWGS} = false ]
           then
               java -Xmx${mem}g -jar ${gatk_jar} CalculateTargetCoverage --output ${entity_id}.coverage.tsv \
-                --groupBy ${grouping} --transform ${transform} --targets ${padded_target_file} --targetInformationColumns FULL \
-                --input ${input_bam} --reference ${ref_fasta} --disableAllReadFilters ${disable_all_read_filters} \
+                --groupBy SAMPLE --transform PCOV --targets ${padded_target_file} --targetInformationColumns FULL \
+                --input ${input_bam} --reference ${ref_fasta}  \
                 $(if [ ${keep_duplicate_reads} = true ]; then echo " --disableReadFilter NotDuplicateReadFilter "; else echo ""; fi) \
                 --interval_set_rule UNION --interval_padding 0 \
-                --secondsBetweenProgressUpdates 10.0 --disableSequenceDictionaryValidation ${disable_sequence_dictionary_validation} \
+                --secondsBetweenProgressUpdates 10.0  \
                 --createOutputBamIndex true --help false --version false --verbosity INFO --QUIET false
           else
               touch ${entity_id}.coverage.tsv
@@ -410,10 +301,6 @@ task CalculateTargetCoverage {
     output {
         File gatk_coverage_file = "${entity_id}.coverage.tsv"
     }
-
-    #runtime {
-    #    docker: "gatk-protected/a1"
-    #}
 }
 
 # Calculate coverage on Whole Genome Sequence using Spark.
@@ -457,15 +344,11 @@ task AnnotateTargets {
     File ref_fasta
     File ref_fasta_fai
     File ref_fasta_dict
-    Boolean enable_gc_correction
     Int mem
 
     # If GC correction is disabled, then an empty file gets passed downstream
     command {
-        if [ ${enable_gc_correction} = true ]; \
-          then java -Xmx${mem}g -jar ${gatk_jar} AnnotateTargets --targets ${target_file} --reference ${ref_fasta} --output ${entity_id}.annotated.tsv; \
-          else touch ${entity_id}.annotated.tsv; \
-        fi
+          java -Xmx${mem}g -jar ${gatk_jar} AnnotateTargets --targets ${target_file} --reference ${ref_fasta} --output ${entity_id}.annotated.tsv
     }
 
     output {
@@ -480,16 +363,12 @@ task CorrectGCBias {
     File coverage_file
     File annotated_targets
     String gatk_jar
-    Boolean enable_gc_correction
     Int mem
 
     # If GC correction is disabled, then the coverage file gets passed downstream unchanged
     command {
-        if [ ${enable_gc_correction} = true ]; \
-          then java -Xmx${mem}g -jar ${gatk_jar} CorrectGCBias --input ${coverage_file} \
-           --output ${entity_id}.gc_corrected_coverage.tsv --targets ${annotated_targets}; \
-          else ln -s ${coverage_file} ${entity_id}.gc_corrected_coverage.tsv; \
-        fi
+          java -Xmx${mem}g -jar ${gatk_jar} CorrectGCBias --input ${coverage_file} \
+            --output ${entity_id}.gc_corrected_coverage.tsv --targets ${annotated_targets}; \
     }
 
     output {
@@ -517,36 +396,20 @@ task NormalizeSomaticReadCounts {
         File pre_tn_file = "${entity_id}.preTN.tsv"
         File betahats_file = "${entity_id}.betaHats.tsv"
     }
-    #runtime {
-    #    docker: "gatk-protected/a1"
-    #}
 }
 
 # Segment the tangent normalized coverage profile.
+##TODO: replace with PErformCopyRatioSegmentation
 task PerformSegmentation {
     String entity_id
-    Float seg_param_alpha
-    Int seg_param_nperm
-    String seg_param_pmethod
-    Int seg_param_minWidth
-    Int seg_param_kmax
-    Int seg_param_nmin
-    Float seg_param_eta
-    Float seg_param_trim
-    String seg_param_undoSplits
-    Float seg_param_undoPrune
-    Int seg_param_undoSD
+
     String gatk_jar
     File tn_file
     Int mem
 
     command {
         java -Xmx${mem}g -jar ${gatk_jar} PerformSegmentation --tangentNormalized ${tn_file} \
-         --output ${entity_id}.seg --log2Input true  --alpha ${seg_param_alpha} --nperm ${seg_param_nperm} \
-         --pmethod ${seg_param_pmethod} --minWidth ${seg_param_minWidth} --kmax ${seg_param_kmax} \
-         --nmin ${seg_param_nmin} --eta ${seg_param_eta} --trim ${seg_param_trim} --undoSplits ${seg_param_undoSplits} \
-         --undoPrune ${seg_param_undoPrune} --undoSD ${seg_param_undoSD} --help false --version false \
-         --verbosity INFO --QUIET false
+         --output ${entity_id}.seg --log2Input true
     }
 
     output {
@@ -554,107 +417,6 @@ task PerformSegmentation {
     }
 }
 
-# Make calls (amp, neutral, or deleted) on each segment.
-task Caller {
-    String entity_id
-    String gatk_jar
-    File tn_file
-    File seg_file
-    Int mem
-
-    command {
-        java -Xmx${mem}g -jar ${gatk_jar} CallSegments --tangentNormalized ${tn_file} \
-         --segments ${seg_file} --output ${entity_id}.called  --legacy false \
-         --help false --version false --verbosity INFO --QUIET false
-    }
-
-    output {
-        File called_file="${entity_id}.called"
-    }
-}
-
-# Call heterozygous SNPs in the normal and then count the reads in the tumor for each called position.
-# Entity IDs can be the same value
-task HetPulldown {
-    String entity_id_tumor
-    String entity_id_normal
-    String gatk_jar
-    File ref_fasta
-    File ref_fasta_fai
-    File ref_fasta_dict
-    File tumor_bam
-    File tumor_bam_idx
-    File normal_bam
-    File normal_bam_idx
-    File common_snp_list
-    Int mem
-
-    command {
-        java -Xmx${mem}g -jar ${gatk_jar} GetHetCoverage --reference ${ref_fasta} \
-         --normal ${normal_bam} --tumor ${tumor_bam} --snpIntervals ${common_snp_list} \
-         --normalHets ${entity_id_normal}.normal.hets.tsv --tumorHets ${entity_id_tumor}.tumor.hets.tsv --pvalueThreshold 0.05 \
-         --help false --version false --verbosity INFO --QUIET false --VALIDATION_STRINGENCY LENIENT
-    }
-
-    output {
-        File normal_hets="${entity_id_normal}.normal.hets.tsv"
-        File tumor_hets="${entity_id_tumor}.tumor.hets.tsv"
-    }
-}
-
-# Call heterozygous SNPs in the normal and then count the reads in the tumor for each called position.
-# Entity IDs can be the same value
-task BayesianHetPulldownPaired {
-    String entity_id_tumor
-    String entity_id_normal
-    String gatk_jar
-    File ref_fasta
-    File ref_fasta_fai
-    File ref_fasta_dict
-    File tumor_bam
-    File tumor_bam_idx
-    File normal_bam
-    File normal_bam_idx
-    File common_snp_list
-    Float stringency
-    Int read_depth_threshold
-    Int mem
-
-    command {
-        java -Xmx${mem}g -jar ${gatk_jar} GetBayesianHetCoverage --reference ${ref_fasta} \
-         --normal ${normal_bam} --tumor ${tumor_bam} --snpIntervals ${common_snp_list} \
-         --normalHets ${entity_id_normal}.normal.hets.tsv --tumorHets ${entity_id_tumor}.tumor.hets.tsv \
-         --hetCallingStringency ${stringency} --readDepthThreshold ${read_depth_threshold} \
-         --help false --version false --verbosity INFO --QUIET false --VALIDATION_STRINGENCY LENIENT
-    }
-
-    output {
-        File normal_hets="${entity_id_normal}.normal.hets.tsv"
-        File tumor_hets="${entity_id_tumor}.tumor.hets.tsv"
-    }
-}
-
-# Estimate minor allelic fraction and revise segments
-task AllelicCNV {
-    String entity_id
-    String gatk_jar
-    File tumor_hets
-    File called_file
-    File tn_file
-    Int mem
-
-    command {
-        java -Xmx${mem}g -jar ${gatk_jar} AllelicCNV --tumorHets ${tumor_hets} \
-         --tangentNormalized ${tn_file} --segments ${called_file} --outputPrefix ${entity_id} \
-         --smallSegmentThreshold 3 --numSamplesCopyRatio 100 --numBurnInCopyRatio 50 --numSamplesAlleleFraction 100 \
-         --numBurnInAlleleFraction 50 --intervalThresholdCopyRatio 5.0 --intervalThresholdAlleleFraction 2.0 \
-         --help false --version false --verbosity INFO --QUIET false
-    }
-
-    output {
-        File acnv_final_segs="${entity_id}-sim-final.seg"
-    }
-}
 
 # Create plots of coverage data and copy-ratio estimates
 task PlotSegmentedCopyRatio {
@@ -679,54 +441,5 @@ task PlotSegmentedCopyRatio {
         File segments_plot="${output_dir}/${entity_id}_FullGenome.png"
         File before_after_normalization_plot="${output_dir}/${entity_id}_Before_After.png"
         File before_after_cr_lim_4="${output_dir}/${entity_id}_Before_After_CR_Lim_4.png"
-    }
-}
-
-# Create plots of allelic-count data and minor-allele-fraction estimates
-task PlotACNVResults {
-    String entity_id
-    String gatk_jar
-    File tumor_hets
-    File tn_file
-    File acnv_segments
-    File ref_fasta_dict
-    String output_dir
-    Int mem
-
-    command {
-        mkdir -p ${output_dir} && \
-        java -Xmx${mem}g -jar ${gatk_jar} PlotACNVResults --hets ${tumor_hets} \
-         --tangentNormalized ${tn_file} --segments ${acnv_segments} \
-         -SD ${ref_fasta_dict} \
-         --output ${output_dir} --outputPrefix ${entity_id}
-    }
-
-    output { 
-        File acnv_plot="${output_dir}/${entity_id}_ACNV.png"
-    }
-}
-
-task ConvertACNVResults {
-    String entity_id
-    String gatk_jar
-    File tumor_hets
-    File acnv_segments
-    File tn_file
-    String output_dir
-    Int mem
-
-    command {
-        mkdir -p ${output_dir} && \
-        java -Xmx${mem}g -jar ${gatk_jar} ConvertACNVResults --tumorHets ${tumor_hets} \
-         --segments ${acnv_segments} --tangentNormalized ${tn_file} \
-         --outputDir ${output_dir}
-    }
-
-    output {
-        File allelic_calls_final_acs_segs="${output_dir}/${entity_id}-sim-final.acs.seg"
-        File allelic_calls_final_cnb_called_segs="${output_dir}/${entity_id}-sim-final.cnb_called.seg"
-        File allelic_calls_final_cnv_segs="${output_dir}/${entity_id}-sim-final.cnv.seg"
-        File allelic_calls_final_titan_hets="${output_dir}/${entity_id}-sim-final.titan.het.tsv"
-        File allelic_calls_final_titan_tn="${output_dir}/${entity_id}-sim-final.titan.tn.tsv"
     }
 }
