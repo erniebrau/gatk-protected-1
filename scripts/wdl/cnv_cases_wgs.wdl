@@ -201,7 +201,7 @@ task PerformSegmentation {
     Int mem
 
     command {
-        java -Xmx${mem}g -jar ${gatk_jar} PerformSegmentation --tangentNormalized ${tn_file} \
+        java -Xmx${mem}g -jar ${gatk_jar} PerformCopyRatioSegmentation --tangentNormalized ${tn_file} \
          -S ${entity_id}.seg  -initialNumStates 7
     }
 
