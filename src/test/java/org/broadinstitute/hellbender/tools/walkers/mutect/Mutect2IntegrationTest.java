@@ -55,6 +55,8 @@ public class Mutect2IntegrationTest extends CommandLineProgramTest {
                 "-normal", normalSample,
                 "-R", b37_reference_20_21,
                 "-L", "20",
+                "-initial_tumor_lod", "2.0",
+                "-tumor_lod", "4.0",
                 "-O", unfilteredVcf.getAbsolutePath()
         };
 
