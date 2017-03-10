@@ -17,10 +17,14 @@ import java.util.stream.IntStream;
  */
 public abstract class ScalarHMMSegmenter<DATA> extends ClusteringGenomicHMMSegmenter<DATA, Double> {
 
-    private static final double DEFAULT_MEMORY_LENGTH = 5e7;
+    private static final double DEFAULT_MEMORY_LENGTH = 5e6;
 
     public ScalarHMMSegmenter(final List<SimpleInterval> positions, final List<DATA> data, final List<Double> initialNonConstantHiddenStates) {
         super(positions, data, initialNonConstantHiddenStates, DEFAULT_MEMORY_LENGTH);
+    }
+
+    public ScalarHMMSegmenter(final List<SimpleInterval> positions, final List<DATA> data, final List<Double> initialNonConstantHiddenStates, final double initialMemoryLength) {
+        super(positions, data, initialNonConstantHiddenStates, initialMemoryLength);
     }
 
     @Override

@@ -42,6 +42,13 @@ public final class CopyRatioSegmenter extends ScalarHMMSegmenter<Double> {
         logCoverageCauchyWidth = DEFAULT_INITIAL_CAUCHY_WIDTH;
     }
 
+    public CopyRatioSegmenter(final int initialNumStates, final ReadCountCollection rcc, final double initialMemoryLength) {
+        super(rcc.targets().stream().map(SimpleInterval::new).collect(Collectors.toList()), Doubles.asList(rcc.getColumn(0)),
+                initialLog2CopyRatios(initialNumStates), initialMemoryLength);
+        Utils.validateArg(rcc.columnNames().size() == 1, "Only single-sample ReadCountCollection is supported.");
+        logCoverageCauchyWidth = DEFAULT_INITIAL_CAUCHY_WIDTH;
+    }
+
     /**
      * evenly-spaced log-2 copy ratios
      * @param K the initial number of hidden states

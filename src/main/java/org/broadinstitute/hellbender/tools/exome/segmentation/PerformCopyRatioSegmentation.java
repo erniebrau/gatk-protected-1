@@ -51,6 +51,14 @@ public final class PerformCopyRatioSegmentation extends CommandLineProgram {
     )
     protected File outputSegmentsFile;
 
+    @Argument(
+            doc = "Initial memory length.",
+            fullName = "IML",
+            shortName = "iml",
+            optional = true
+    )
+    protected double initialMemoryLength = 5e6;
+
     @Override
     public Object doWork() {
         final String sampleName = ReadCountCollectionUtils.getSampleNameForCLIsFromReadCountsFile(new File(coverageFile));
@@ -61,7 +69,7 @@ public final class PerformCopyRatioSegmentation extends CommandLineProgram {
             throw new UserException.BadInput("could not read input file");
         }
 
-        final CopyRatioSegmenter segmenter = new CopyRatioSegmenter(initialNumStates, rcc);
+        final CopyRatioSegmenter segmenter = new CopyRatioSegmenter(initialNumStates, rcc, initialMemoryLength);
         final List<ModeledSegment> segments = segmenter.getModeledSegments();
         SegmentUtils.writeModeledSegmentFile(outputSegmentsFile, segments, sampleName, false);
 

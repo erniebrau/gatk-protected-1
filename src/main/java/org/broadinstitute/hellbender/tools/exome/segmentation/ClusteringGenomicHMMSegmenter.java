@@ -37,7 +37,7 @@ public abstract class ClusteringGenomicHMMSegmenter<DATA, HIDDEN> {
     private static final double MAXIMUM_MEMORY_LENGTH = 1e10;
 
     protected static final double CONVERGENCE_THRESHOLD = 0.01;
-    private static final double MEMORY_LENGTH_CONVERGENCE_THRESHOLD = 1e4;
+    private static final double MEMORY_LENGTH_CONVERGENCE_THRESHOLD = 1e5;
 
     protected static final double RELATIVE_TOLERANCE_FOR_OPTIMIZATION = 0.01;
     protected static final double ABSOLUTE_TOLERANCE_FOR_OPTIMIZATION = 0.01;
