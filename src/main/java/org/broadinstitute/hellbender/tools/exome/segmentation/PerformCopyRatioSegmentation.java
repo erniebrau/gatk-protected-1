@@ -59,6 +59,14 @@ public final class PerformCopyRatioSegmentation extends CommandLineProgram {
     )
     protected double initialMemoryLength = 5e6;
 
+    @Argument(
+            doc = "spike in",
+            fullName = "spike",
+            shortName = "spike",
+            optional = true
+    )
+    protected double spikeIn = 0;
+
     @Override
     public Object doWork() {
         final String sampleName = ReadCountCollectionUtils.getSampleNameForCLIsFromReadCountsFile(new File(coverageFile));
@@ -69,7 +77,7 @@ public final class PerformCopyRatioSegmentation extends CommandLineProgram {
             throw new UserException.BadInput("could not read input file");
         }
 
-        final CopyRatioSegmenter segmenter = new CopyRatioSegmenter(initialNumStates, rcc, initialMemoryLength);
+        final CopyRatioSegmenter segmenter = new CopyRatioSegmenter(initialNumStates, rcc, initialMemoryLength, spikeIn);
         final List<ModeledSegment> segments = segmenter.getModeledSegments();
         SegmentUtils.writeModeledSegmentFile(outputSegmentsFile, segments, sampleName, false);
 

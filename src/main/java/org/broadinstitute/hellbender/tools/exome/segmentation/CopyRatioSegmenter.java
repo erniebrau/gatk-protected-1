@@ -30,35 +30,47 @@ public final class CopyRatioSegmenter extends ScalarHMMSegmenter<Double> {
     private static final double MIN_LOG_2_COPY_RATIO = -5.0;
     private static final double MAX_LOG_2_COPY_RATIO = 5.0;
 
-
     /**
      * @param initialNumStates  A liberal estimate of the number of hidden minor allele fraction values to
      *                          include in the model.  Hidden states are pruned as the model is learned.
      */
     public CopyRatioSegmenter(final int initialNumStates, final ReadCountCollection rcc) {
         super(rcc.targets().stream().map(SimpleInterval::new).collect(Collectors.toList()), Doubles.asList(rcc.getColumn(0)),
-                initialLog2CopyRatios(initialNumStates));
+                initialLog2CopyRatios(initialNumStates, 0));
         Utils.validateArg(rcc.columnNames().size() == 1, "Only single-sample ReadCountCollection is supported.");
         logCoverageCauchyWidth = DEFAULT_INITIAL_CAUCHY_WIDTH;
     }
 
     public CopyRatioSegmenter(final int initialNumStates, final ReadCountCollection rcc, final double initialMemoryLength) {
         super(rcc.targets().stream().map(SimpleInterval::new).collect(Collectors.toList()), Doubles.asList(rcc.getColumn(0)),
-                initialLog2CopyRatios(initialNumStates), initialMemoryLength);
+                initialLog2CopyRatios(initialNumStates, 0), initialMemoryLength);
         Utils.validateArg(rcc.columnNames().size() == 1, "Only single-sample ReadCountCollection is supported.");
         logCoverageCauchyWidth = DEFAULT_INITIAL_CAUCHY_WIDTH;
+    }
+
+    public CopyRatioSegmenter(final int initialNumStates, final ReadCountCollection rcc, final double initialMemoryLength, final double spikeIn) {
+        super(rcc.targets().stream().map(SimpleInterval::new).collect(Collectors.toList()), Doubles.asList(rcc.getColumn(0)),
+                initialLog2CopyRatios(initialNumStates, spikeIn), initialMemoryLength);
+        Utils.validateArg(rcc.columnNames().size() == 1, "Only single-sample ReadCountCollection is supported.");
+        logCoverageCauchyWidth = DEFAULT_INITIAL_CAUCHY_WIDTH;
+    }
+
+    private static double effectiveCopyNumber(final double copyNumber, final double spikeIn) {
+        return copyNumber * (1 - spikeIn) + 2 * spikeIn;
+    }
+
+    private static double effectiveLogCopyRatio(final double copyNumber, final double spikeIn) {
+        return ParamUtils.log2(effectiveCopyNumber(copyNumber, spikeIn)/2);
     }
 
     /**
      * evenly-spaced log-2 copy ratios
      * @param K the initial number of hidden states
      */
-    private static List<Double> initialLog2CopyRatios(final int K) {
+    private static  List<Double> initialLog2CopyRatios(final int K, final double spikeIn) {
         final List<Double> result = new ArrayList<>();
-        result.add(MIN_LOG_2_COPY_RATIO);       // 0
-        result.add(ParamUtils.log2(0.5));       // 1
-        result.add(0.0);   // 2
-        IntStream.range(3, K).forEach(n -> result.add(ParamUtils.log2(n / 2.0)));
+        result.add(spikeIn < 1.0e-6 ? MIN_LOG_2_COPY_RATIO : effectiveLogCopyRatio(0, spikeIn));       // 0
+        IntStream.range(1, K).forEach(n -> result.add(effectiveLogCopyRatio(n, spikeIn)));
         return result;
     }
 
