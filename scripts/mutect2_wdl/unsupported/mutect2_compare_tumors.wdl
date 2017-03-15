@@ -4,30 +4,6 @@
 # be from a solid tumor while the "bad" sample might be low-allele-fraction cfDNA
 import "mutect2.wdl" as m2
 
-task GatherTables {
-    # we assume that each table consists of two lines: one header line and one record
-	Array[File] tables
-
-	command {
-	    # extract the header from one of the files
-		head -n 1 ${tables[0]} > summary.txt
-
-		# then append the record from each table
-		for table in ${sep=" " tables}; do
-			tail -n +2 $table >> summary.txt
-		done
-	}
-
-	runtime {
-        docker: "broadinstitute/genomes-in-the-cloud:2.2.4-1469632282"
-        memory: "1 GB"
-        disks: "local-disk " + 100 + " HDD"
-    }
-
-	output {
-		File summary = "summary.txt"
-	}
-}
 
 task Concordance {
   File gatk4_jar
