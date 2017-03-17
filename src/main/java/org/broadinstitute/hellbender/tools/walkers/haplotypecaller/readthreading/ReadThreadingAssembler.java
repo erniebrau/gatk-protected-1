@@ -129,7 +129,18 @@ public final class ReadThreadingAssembler {
                 .collect(Collectors.toList());
 
         results.forEach(r -> sanityCheckReferenceGraph(r.getGraph(), refHaplotype));
-        findBestPaths(refHaplotype, results, resultSet);
+
+        final Map<Haplotype, AssemblyResult> returnHaplotypes = findBestPaths(refHaplotype, results);
+
+        for (final Map.Entry<Haplotype, AssemblyResult> entry : returnHaplotypes.entrySet()) {
+            final Haplotype haplotype = entry.getKey();
+            final AssemblyResult result = entry.getValue();
+            if (result == null) {   // the ref haplotype will not be associated with any AssemblyResult
+                resultSet.add(haplotype);
+            } else {
+                resultSet.add(haplotype, result);
+            }
+        }
 
         // print the graphs if the appropriate debug option has been turned on
         if ( graphOutputPath != null ) { printGraphs(results); }
@@ -167,10 +178,11 @@ public final class ReadThreadingAssembler {
         return new ArrayList<>(returnHaplotypes);
     }
 
-    private List<Haplotype> findBestPaths(final Haplotype refHaplotype,
-                                          final List<AssemblyResult> assemblyResults, final AssemblyResultSet assemblyResultSet) {
+    // return Map of good haplotypes and the AssemblyResult (null for the ref haplotype) from which they came
+    private Map<Haplotype, AssemblyResult> findBestPaths(final Haplotype refHaplotype,
+                                                         final List<AssemblyResult> assemblyResults) {
         // add the reference haplotype separately from all the others to ensure that it is present in the list of haplotypes
-        final Set<Haplotype> returnHaplotypes = new LinkedHashSet<>();
+        final Map<Haplotype, AssemblyResult> returnHaplotypes = new LinkedHashMap<>();
 
         final int activeRegionStart = refHaplotype.getAlignmentStartHapwrtRef();
         final Collection<KBestHaplotypeFinder> finders = new ArrayList<>(assemblyResults.size());
@@ -185,58 +197,48 @@ public final class ReadThreadingAssembler {
             while (bestHaplotypes.hasNext()) {
                 final KBestHaplotype kBestHaplotype = bestHaplotypes.next();
                 final Haplotype h = kBestHaplotype.haplotype();
-                if( !returnHaplotypes.contains(h) ) {
-                    final Optional<Cigar> cigar = calculateCigarIfUsable(refHaplotype, failedCigars, h);
-                    if (cigar.isPresent()) {
-                        h.setCigar(cigar.get());
-                        h.setAlignmentStartHapwrtRef(activeRegionStart);
-                        h.setGenomeLocation(assemblyResultSet.getRegionForGenotyping().getExtendedSpan());
-                        returnHaplotypes.add(h);
+                if( returnHaplotypes.containsKey(h) ) {
+                    continue;
+                }
+                final Optional<Cigar> cigar = calculateCigarIfUsable(refHaplotype, failedCigars, h);
+                if (cigar.isPresent()) {
+                    h.setCigar(cigar.get());
+                    h.setAlignmentStartHapwrtRef(activeRegionStart);
+                    h.setGenomeLocation(refHaplotype.getGenomeLocation());
+                    returnHaplotypes.put(h, result);
 
-                        //TODO: ugly buried side-effect
-                        assemblyResultSet.add(h, result);
-
-                        if ( debug ) {
-                            logger.info("Adding haplotype " + h.getCigar() + " from graph with kmer " + graph.getKmerSize());
-                        }
+                    if ( debug ) {
+                        logger.info("Adding haplotype " + h.getCigar() + " from graph with kmer " + graph.getKmerSize());
                     }
                 }
+
             }
         }
 
-        // Make sure that the ref haplotype is amongst the return haplotypes and calculate its score as
-        // the first returned by any finder.
-        if (!returnHaplotypes.contains(refHaplotype)) {
-            double refScore = Double.NaN;
-            for (final KBestHaplotypeFinder finder : finders) {
-                final double candidate = finder.score(refHaplotype);
-                if (Double.isNaN(candidate)) {
-                    continue;
-                }
-                refScore = candidate;
-                break;
-            }
+        // If the ref haplotype is missing, add it and set its score as the first non-NaN score from any finder
+        if (!returnHaplotypes.containsKey(refHaplotype)) {
+            final double refScore = finders.stream()
+                    .mapToDouble(f -> f.score(refHaplotype))
+                    .filter(x -> !Double.isNaN(x))
+                    .findFirst().orElseGet(() -> Double.NaN);
             refHaplotype.setScore(refScore);
-            returnHaplotypes.add(refHaplotype);
+            returnHaplotypes.put(refHaplotype, null);
         }
 
         if (failedCigars.intValue() != 0) {
-            logger.debug(String.format("failed to align some haplotypes (%d) back to the reference (loc=%s); these will be ignored.", failedCigars, assemblyResultSet.getPaddedReferenceLoc().toString()));
+            logger.debug(String.format("failed to align some haplotypes (%d) back to the reference (loc=%s); these will be ignored.", failedCigars, refHaplotype.getGenomeLocation().toString()));
         }
 
         if ( debug ) {
-            if( returnHaplotypes.size() > 1 ) {
-                logger.info("Found " + returnHaplotypes.size() + " candidate haplotypes of " + returnHaplotypes.size() + " possible combinations to evaluate every read against.");
-            } else {
-                logger.info("Found only the reference haplotype in the assembly graph.");
-            }
-            for( final Haplotype h : returnHaplotypes ) {
-                logger.info( h.toString() );
-                logger.info( "> Cigar = " + h.getCigar() + " : " + h.getCigar().getReferenceLength() + " score " + h.getScore() + " ref " + h.isReference());
-            }
+            final int numHaplotypes = returnHaplotypes.size();
+            final String message = numHaplotypes == 1 ? "Found only the reference haplotype in the assembly graph."
+                    : "Found " + numHaplotypes + " candidate haplotypes in the assembly graph.";
+            logger.info(message);
+            returnHaplotypes.keySet().forEach(h -> logger.info( h.toString()));
+            returnHaplotypes.keySet().forEach(h -> logger.info( "> Cigar = " + h.getCigar() + " : " + h.getCigar().getReferenceLength() + " score " + h.getScore() + " ref " + h.isReference()));
         }
 
-        return new ArrayList<>(returnHaplotypes);
+        return returnHaplotypes;
 
     }
 
