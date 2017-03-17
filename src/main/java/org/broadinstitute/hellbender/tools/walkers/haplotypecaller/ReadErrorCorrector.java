@@ -250,13 +250,15 @@ public final class ReadErrorCorrector {
      * For each read in list, its constituent kmers will be logged in our kmer table.
      * @param reads
      */
-    public void addReadsToKmers(final Collection<GATKRead> reads) {
+    public ReadErrorCorrector addReadsToKmers(final Collection<GATKRead> reads) {
         Utils.nonNull(reads);
         reads.forEach(this::addReadKmers);
 
         if (debug) {
             countsByKMer.getCountedKmers().forEach(k -> logger.info(String.format("%s\t%d\n", k.kmer, k.count)));
         }
+
+        return this;
     }
 
 

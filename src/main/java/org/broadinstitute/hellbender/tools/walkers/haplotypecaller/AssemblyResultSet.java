@@ -56,6 +56,13 @@ public final class AssemblyResultSet {
         kmerSizes = new CountSet(4);
     }
 
+    public AssemblyResultSet(final AssemblyRegion regionForGenotyping, final byte[] fullReferenceWithPadding, final SimpleInterval paddedReferenceLoc) {
+        this();
+        setRegionForGenotyping(regionForGenotyping);
+        setFullReferenceWithPadding(fullReferenceWithPadding);
+        setPaddedReferenceLoc(paddedReferenceLoc);
+    }
+
     /**
      * Trims an assembly result set down based on a new set of trimmed haplotypes.
      *
@@ -74,7 +81,7 @@ public final class AssemblyResultSet {
             throw new IllegalStateException("refHaplotype is null");
         }
         Utils.nonNull(trimmedAssemblyRegion);
-        final AssemblyResultSet result = new AssemblyResultSet();
+        final AssemblyResultSet result = new AssemblyResultSet(trimmedAssemblyRegion, fullReferenceWithPadding, paddedReferenceLoc);
 
         for (final Haplotype trimmed : originalByTrimmedHaplotypes.keySet()) {
             final Haplotype original = originalByTrimmedHaplotypes.get(trimmed);
@@ -89,9 +96,6 @@ public final class AssemblyResultSet {
             }
         }
 
-        result.setRegionForGenotyping(trimmedAssemblyRegion);
-        result.setFullReferenceWithPadding(fullReferenceWithPadding);
-        result.setPaddedReferenceLoc(paddedReferenceLoc);
         if (result.refHaplotype == null) {
             throw new IllegalStateException("missing reference haplotype in the trimmed set");
         }

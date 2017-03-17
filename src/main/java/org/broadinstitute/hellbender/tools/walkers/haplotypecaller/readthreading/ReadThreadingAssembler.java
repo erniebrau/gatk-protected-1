@@ -115,31 +115,22 @@ public final class ReadThreadingAssembler {
         final List<Haplotype> givenHaplotypes = composeGivenHaplotypes(refHaplotype, givenAlleles, assemblyRegion.getExtendedSpan());
 
         // error-correct reads before clipping low-quality tails: some low quality bases might be good and we want to recover them
-        final List<GATKRead> correctedReads;
-        if ( readErrorCorrector != null ) {
-            // now correct all reads in active region after filtering/downsampling
-            // Note that original reads in active region are NOT modified by default, since they will be used later for GL computation,
-            // and we only want the read-error corrected reads for graph building.
-            readErrorCorrector.addReadsToKmers(assemblyRegion.getReads());
-            correctedReads = new ArrayList<>(readErrorCorrector.correctReads(assemblyRegion.getReads()));
-        } else {
-            correctedReads = assemblyRegion.getReads();
-        }
+        final List<GATKRead> uncorrectedReads = assemblyRegion.getReads();
+        final List<GATKRead> correctedReads = readErrorCorrector == null ? uncorrectedReads
+                : readErrorCorrector.addReadsToKmers(uncorrectedReads).correctReads(uncorrectedReads);
 
         final List<SeqGraph> nonRefGraphs = new LinkedList<>();
-        final AssemblyResultSet resultSet = new AssemblyResultSet();
-        resultSet.setRegionForGenotyping(assemblyRegion);
-        resultSet.setFullReferenceWithPadding(fullReferenceWithPadding);
-        resultSet.setPaddedReferenceLoc(refLoc);
-        final SimpleInterval activeRegionExtendedLocation = assemblyRegion.getExtendedSpan();
-        refHaplotype.setGenomeLocation(activeRegionExtendedLocation);
+        final AssemblyResultSet resultSet = new AssemblyResultSet(assemblyRegion, fullReferenceWithPadding, refLoc);
+        refHaplotype.setGenomeLocation(assemblyRegion.getExtendedSpan());
         resultSet.add(refHaplotype);
         final Map<SeqGraph,AssemblyResult> assemblyResultByGraph = new HashMap<>();
+
+        
         // create the graphs by calling our subclass assemble method
         for ( final AssemblyResult result : assemble(correctedReads, refHaplotype, givenHaplotypes, header) ) {
             if ( result.getStatus() == AssemblyResult.Status.ASSEMBLED_SOME_VARIATION ) {
                 // do some QC on the graph
-                sanityCheckGraph(result.getGraph(), refHaplotype);
+                sanityCheckReferenceGraph(result.getGraph(), refHaplotype);
                 // add it to graphs with meaningful non-reference features
                 assemblyResultByGraph.put(result.getGraph(),result);
                 nonRefGraphs.add(result.getGraph());
@@ -147,7 +138,7 @@ public final class ReadThreadingAssembler {
 
         }
 
-        findBestPaths(nonRefGraphs, refHaplotype, refLoc, activeRegionExtendedLocation, assemblyResultByGraph, resultSet);
+        findBestPaths(nonRefGraphs, refHaplotype, refLoc, assemblyRegion.getExtendedSpan(), assemblyResultByGraph, resultSet);
 
         // print the graphs if the appropriate debug option has been turned on
         if ( graphOutputPath != null ) { printGraphs(nonRefGraphs); }
@@ -332,15 +323,6 @@ public final class ReadThreadingAssembler {
         }
         printDebugGraphTransform(seqGraph, "sequenceGraph.5.final.dot");
         return new AssemblyResult(AssemblyResult.Status.ASSEMBLED_SOME_VARIATION, seqGraph, null);
-    }
-
-    /**
-     * Perform general QC on the graph to make sure something hasn't gone wrong during assembly
-     * @param graph the graph to check
-     * @param refHaplotype the reference haplotype
-     */
-    private static <T extends BaseVertex, E extends BaseEdge> void sanityCheckGraph(final BaseGraph<T,E> graph, final Haplotype refHaplotype) {
-        sanityCheckReferenceGraph(graph, refHaplotype);
     }
 
     /**
