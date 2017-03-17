@@ -119,7 +119,7 @@ public final class KmerUnitTest extends BaseTest {
         final int[] differingIndices = new int[bases2.length];
         final byte[] differingBases = new byte[bases2.length];
 
-        Assert.assertEquals(eq1.getDifferingPositions(eq2, 1, differingIndices, differingBases), -1);
+        Assert.assertEquals(eq1.getDifferingPositions(eq2, 1, differingIndices, differingBases), Integer.MAX_VALUE);
     }
 
     @Test

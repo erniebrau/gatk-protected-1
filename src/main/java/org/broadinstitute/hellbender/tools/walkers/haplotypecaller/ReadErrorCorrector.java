@@ -10,6 +10,8 @@ import org.broadinstitute.hellbender.utils.clipping.ReadClipper;
 import org.broadinstitute.hellbender.utils.read.GATKRead;
 
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * Utility class that error-corrects reads.
@@ -114,7 +116,7 @@ public final class ReadErrorCorrector {
 
         // when region has long homopolymers, we may want not to correct reads, since assessment is complicated,
         // so we may decide to skip error correction in these regions
-        maxHomopolymerLengthInRegion = computeMaxHLen(fullReferenceWithPadding);
+        maxHomopolymerLengthInRegion = maxHomopolymerLength(fullReferenceWithPadding);
     }
 
     /**
@@ -149,29 +151,23 @@ public final class ReadErrorCorrector {
      */
     public final List<GATKRead> correctReads(final Collection<GATKRead> reads) {
 
-        final List<GATKRead> correctedReads = new ArrayList<>(reads.size());
         if (DONT_CORRECT_IN_LONG_HOMOPOLYMERS && maxHomopolymerLengthInRegion > MAX_HOMOPOLYMER_THRESHOLD) {
             // just copy reads into output and exit
-            correctedReads.addAll(reads);
+            return new ArrayList<>(reads);
         }
-        else {
-            computeKmerCorrectionMap();
-            for (final GATKRead read: reads) {
-                final GATKRead correctedRead = correctRead(read);
-                if (trimLowQualityBases) {
-                    correctedReads.add(ReadClipper.hardClipLowQualEnds(correctedRead, minTailQuality));
-                } else {
-                    correctedReads.add(correctedRead);
-                }
-            }
-            if (debug) {
-                logger.info("Number of corrected bases:" + readErrorCorrectionStats.numBasesCorrected);
-                logger.info("Number of corrected reads:" + readErrorCorrectionStats.numReadsCorrected);
-                logger.info("Number of skipped reads:" + readErrorCorrectionStats.numReadsUncorrected);
-                logger.info("Number of solid kmers:" + readErrorCorrectionStats.numSolidKmers);
-                logger.info("Number of corrected kmers:" + readErrorCorrectionStats.numCorrectedKmers);
-                logger.info("Number of uncorrectable kmers:" + readErrorCorrectionStats.numUncorrectableKmers);
-            }
+
+        computeKmerCorrectionMap();
+        final List<GATKRead> correctedReads = reads.stream()
+                .map(read -> trimLowQualityBases ? ReadClipper.hardClipLowQualEnds(correctRead(read), minTailQuality) : correctRead(read))
+                .collect(Collectors.toList());
+
+        if (debug) {
+            logger.info("Number of corrected bases:" + readErrorCorrectionStats.numBasesCorrected);
+            logger.info("Number of corrected reads:" + readErrorCorrectionStats.numReadsCorrected);
+            logger.info("Number of skipped reads:" + readErrorCorrectionStats.numReadsUncorrected);
+            logger.info("Number of solid kmers:" + readErrorCorrectionStats.numSolidKmers);
+            logger.info("Number of corrected kmers:" + readErrorCorrectionStats.numCorrectedKmers);
+            logger.info("Number of uncorrectable kmers:" + readErrorCorrectionStats.numUncorrectableKmers);
         }
         return correctedReads;
     }
@@ -205,23 +201,11 @@ public final class ReadErrorCorrector {
 
         if (corrected) {
             readErrorCorrectionStats.numReadsCorrected++;
-            if (doInplaceErrorCorrection) {
-                inputRead.setBases(correctedBases);
-                inputRead.setBaseQualities(correctedQuals);
-                return inputRead;
-            }
-            else {
-                final GATKRead correctedRead = inputRead.deepCopy();
-
-                //  do the actual correction
-                // todo - do we need to clone anything else from read?
-                correctedRead.setBaseQualities(inputRead.getBaseQualities());
-                correctedRead.setBases(inputRead.getBases());
-                correctedRead.setReadGroup(inputRead.getReadGroup());
-                return correctedRead;
-            }
-        }
-        else {
+            final GATKRead correctedRead = doInplaceErrorCorrection ? inputRead : inputRead.deepCopy();
+            correctedRead.setBases(correctedBases);
+            correctedRead.setBaseQualities(correctedQuals);
+            return correctedRead;
+        } else {
             readErrorCorrectionStats.numReadsUncorrected++;
             return inputRead;
         }
@@ -247,13 +231,13 @@ public final class ReadErrorCorrector {
             final Kmer newKmer = kmerCorrectionMap.get(kmer);
             if (newKmer != null && !newKmer.equals(kmer)){
                 final Pair<int[],byte[]> differingPositions = kmerDifferingBases.get(kmer);
-                final int[] differingIndeces = differingPositions.getLeft();
+                final int[] differingIndices = differingPositions.getLeft();
                 final byte[] differingBases = differingPositions.getRight();
 
-                for (int k=0; k < differingIndeces.length; k++) {
+                for (int k=0; k < differingIndices.length; k++) {
                     // get list of differing positions for corrected kmer
                     // for each of these, add correction candidate to correction set
-                    correctionSet.add(offset + differingIndeces[k],differingBases[k]);
+                    correctionSet.add(offset + differingIndices[k],differingBases[k]);
                 }
             }
         }
@@ -268,14 +252,10 @@ public final class ReadErrorCorrector {
      */
     public void addReadsToKmers(final Collection<GATKRead> reads) {
         Utils.nonNull(reads);
-        for (final GATKRead read: reads) {
-            addReadKmers(read);
-        }
+        reads.forEach(this::addReadKmers);
 
         if (debug) {
-            for (final KMerCounter.CountedKmer countedKmer : countsByKMer.getCountedKmers()) {
-                logger.info(String.format("%s\t%d\n", countedKmer.kmer, countedKmer.count));
-            }
+            countsByKMer.getCountedKmers().forEach(k -> logger.info(String.format("%s\t%d\n", k.kmer, k.count)));
         }
     }
 
@@ -348,10 +328,6 @@ public final class ReadErrorCorrector {
             }
 
             final int hammingDistance  = kmer.getDifferingPositions(candidateKmer.getKmer(), maxDistance, differingIndeces, differingBases);
-            if (hammingDistance < 0) // can't compare kmer? skip
-            {
-                continue;
-            }
 
             if (hammingDistance < minimumDistance)  {
                 minimumDistance = hammingDistance;
@@ -366,24 +342,23 @@ public final class ReadErrorCorrector {
 
     /**
      * experimental function to compute max homopolymer length in a given reference context
-     * @param fullReferenceWithPadding                Reference context of interest
-     * @return                                        Max homopolymer length in region
+     * @param sequence                Sequence of interest -- usually the reference context but in principle anything
+     * @return                        Max homopolymer length in region
      */
-    private static int computeMaxHLen(final byte[] fullReferenceWithPadding) {
-        Utils.nonNull(fullReferenceWithPadding);
-        int leftRun = 1;
+    private static int maxHomopolymerLength(final byte[] sequence) {
+        Utils.nonNull(sequence);
+        int currentRun = 1;
         int maxRun = 1;
-        for ( int i = 1; i < fullReferenceWithPadding.length; i++) {
-            if ( fullReferenceWithPadding[i] == fullReferenceWithPadding[i-1] ) {
-                leftRun++;
+        for ( int i = 1; i < sequence.length; i++) {
+            if ( sequence[i] == sequence[i-1] ) {
+                currentRun++;
             } else {
-                leftRun = 1;
+                currentRun = 1;
             }
+            if (currentRun > maxRun) {
+                maxRun = currentRun;
             }
-            if (leftRun > maxRun) {
-                maxRun = leftRun;
-            }
-
+        }
 
         return maxRun;
     }
@@ -412,7 +387,7 @@ public final class ReadErrorCorrector {
      */
     protected static class CorrectionSet {
         private final int size;
-        private ArrayList<List<Byte>> corrections;
+        private final List<List<Byte>> corrections;
 
         /**
          * Main class constructor.
@@ -420,10 +395,7 @@ public final class ReadErrorCorrector {
          */
         public CorrectionSet(final int size) {
             this.size = size;
-            corrections = new ArrayList<>(size);
-            for (int k=0; k < size; k++) {
-                corrections.add(k, new ArrayList<>());
-            }
+            corrections = IntStream.range(0, size).mapToObj(k -> new ArrayList<Byte>()).collect(Collectors.toList());
         }
 
         /**
@@ -434,13 +406,9 @@ public final class ReadErrorCorrector {
         public void add(final int offset, final byte base) {
             if (offset >= size || offset < 0) {
                 throw new IllegalStateException("Bad entry into CorrectionSet: offset > size");
+            } else if (BaseUtils.isRegularBase(base)) {
+                corrections.get(offset).add(base);
             }
-            if (!BaseUtils.isRegularBase(base)) {
-                return; // no irregular base correction
-            }
-
-            final List<Byte> storedBytes = corrections.get(offset);
-            storedBytes.add(base);
         }
 
         /**
@@ -466,21 +434,16 @@ public final class ReadErrorCorrector {
                 return null;
             }
 
-            // todo - is there a cheaper/nicer way to compare if all elements in list are identical??
-            final byte lastBase = storedBytes.remove(storedBytes.size()-1);
-            for (final Byte b: storedBytes) {
+            final byte firstBase = storedBytes.get(0);
+            for (final Byte b : storedBytes) {
                 // strict correction rule: all bases must match
-                if (b != lastBase) {
+                if (b != firstBase) {
                     return null;
                 }
             }
 
             // all bytes then are equal:
-            return lastBase;
-
+            return firstBase;
         }
-
-
-
     }
 }

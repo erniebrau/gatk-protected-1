@@ -118,12 +118,12 @@ public final class Kmer {
      * For example, if this = "ACATT" and other = "ACGGT":
      * - if maxDistance < 2 then -1 will be returned, since distance between kmers is 2.
      * - If maxDistance >=2, then 2 will be returned, and arrays will be filled as follows:
-     * differingIndeces = {2,3}
+     * differingIndices = {2,3}
      * differingBases = {'G','G'}
      * @param other                 Other k-mer to test
      * @param maxDistance           Maximum distance to search. If this and other k-mers are beyond this Hamming distance,
-     *                              search is aborted and -1 is returned
-     * @param differingIndeces      Array with indices of differing bytes in array
+     *                              search is aborted and Integer.MAX_VALUE is returned
+     * @param differingIndices      Array with indices of differing bytes in array
      * @param differingBases        Actual differing bases
      * @return                      Set of mappings of form (int->byte), where each elements represents index
      *                              of k-mer array where bases mismatch, and the byte is the base from other kmer.
@@ -131,27 +131,30 @@ public final class Kmer {
      */
     public int getDifferingPositions(final Kmer other,
                                                    final int maxDistance,
-                                                   final int[] differingIndeces,
+                                                   final int[] differingIndices,
                                                    final byte[] differingBases) {
 
         Utils.nonNull(other);
-        Utils.nonNull(differingIndeces);
+        Utils.nonNull(differingIndices);
         Utils.nonNull(differingBases);
         Utils.validateArg(maxDistance > 0, "maxDistance must be positive but was " + maxDistance);
+
+        if (length != other.length) {
+            return Integer.MAX_VALUE;
+        }
+
         int dist = 0;
-        if (length == other.length()) {
-            final byte[] f2 = other.bases;
-            for (int i=0; i < length; i++) {
-                if (bases[start + i] != f2[i]) {
-                    differingIndeces[dist] = i;
-                    differingBases[dist++] = f2[i];
-                    if (dist > maxDistance) {
-                        return -1;
-                    }
+        final byte[] otherBases = other.bases;
+        for (int i = 0; i < length; i++) {
+            if (bases[start + i] != otherBases[i]) {
+                differingIndices[dist] = i;
+                differingBases[dist++] = otherBases[i];
+                if (dist > maxDistance) {
+                    return -1;
                 }
             }
-
         }
+
         return dist;
     }
 
