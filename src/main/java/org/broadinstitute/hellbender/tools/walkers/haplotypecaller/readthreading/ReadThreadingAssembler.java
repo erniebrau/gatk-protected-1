@@ -4,8 +4,8 @@ import com.google.common.annotations.VisibleForTesting;
 import htsjdk.samtools.Cigar;
 import htsjdk.samtools.CigarOperator;
 import htsjdk.samtools.SAMFileHeader;
-import htsjdk.variant.variantcontext.Allele;
 import htsjdk.variant.variantcontext.VariantContext;
+import org.apache.commons.lang.mutable.MutableInt;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.broadinstitute.hellbender.engine.AssemblyRegion;
@@ -174,14 +174,11 @@ public final class ReadThreadingAssembler {
 
         final int activeRegionStart = refHaplotype.getAlignmentStartHapwrtRef();
         final Collection<KBestHaplotypeFinder> finders = new ArrayList<>(assemblyResults.size());
-        int failedCigars = 0;
+        final MutableInt failedCigars = new MutableInt(0);
 
         for( final AssemblyResult result : assemblyResults ) {
             final SeqGraph graph = result.getGraph();
-            final SeqVertex source = graph.getReferenceSourceVertex();
-            final SeqVertex sink = graph.getReferenceSinkVertex();
-            Utils.validateArg( source != null && sink != null, () -> "Both source and sink cannot be null but got " + source + " and sink " + sink + " for graph " + graph);
-            final KBestHaplotypeFinder haplotypeFinder = new KBestHaplotypeFinder(graph,source,sink);
+            final KBestHaplotypeFinder haplotypeFinder = new KBestHaplotypeFinder(graph, graph.getReferenceSourceVertex(), graph.getReferenceSinkVertex());
             finders.add(haplotypeFinder);
             final Iterator<KBestHaplotype> bestHaplotypes = haplotypeFinder.iterator(numBestHaplotypesPerGraph);
 
@@ -189,33 +186,19 @@ public final class ReadThreadingAssembler {
                 final KBestHaplotype kBestHaplotype = bestHaplotypes.next();
                 final Haplotype h = kBestHaplotype.haplotype();
                 if( !returnHaplotypes.contains(h) ) {
-                    final Cigar cigar = CigarUtils.calculateCigar(refHaplotype.getBases(), h.getBases());
+                    final Optional<Cigar> cigar = calculateCigarIfUsable(refHaplotype, failedCigars, h);
+                    if (cigar.isPresent()) {
+                        h.setCigar(cigar.get());
+                        h.setAlignmentStartHapwrtRef(activeRegionStart);
+                        h.setGenomeLocation(assemblyResultSet.getRegionForGenotyping().getExtendedSpan());
+                        returnHaplotypes.add(h);
 
-                    if ( cigar == null ) {
-                        failedCigars++; // couldn't produce a meaningful alignment of haplotype to reference, fail quietly
-                        continue;
-                    } else if( cigar.isEmpty() ) {
-                        throw new IllegalStateException("Smith-Waterman alignment failure. Cigar = " + cigar + " with reference length " + cigar.getReferenceLength() +
-                                " but expecting reference length of " + refHaplotype.getCigar().getReferenceLength());
-                    } else if ( pathIsTooDivergentFromReference(cigar) || cigar.getReferenceLength() < MIN_HAPLOTYPE_REFERENCE_LENGTH ) {
-                        // N cigar elements means that a bubble was too divergent from the reference so skip over this path
-                        continue;
-                    } else if( cigar.getReferenceLength() != refHaplotype.getCigar().getReferenceLength() ) { // SW failure
-                        throw new IllegalStateException("Smith-Waterman alignment failure. Cigar = " + cigar + " with reference length "
-                                + cigar.getReferenceLength() + " but expecting reference length of " + refHaplotype.getCigar().getReferenceLength()
-                                + " ref = " + refHaplotype + " path " + new String(h.getBases()));
-                    }
+                        //TODO: ugly buried side-effect
+                        assemblyResultSet.add(h, result);
 
-                    h.setCigar(cigar);
-                    h.setAlignmentStartHapwrtRef(activeRegionStart);
-                    h.setGenomeLocation(assemblyResultSet.getRegionForGenotyping().getExtendedSpan());
-                    returnHaplotypes.add(h);
-
-                    //TODO: ugly buried side-effect
-                    assemblyResultSet.add(h, result);
-
-                    if ( debug ) {
-                        logger.info("Adding haplotype " + h.getCigar() + " from graph with kmer " + graph.getKmerSize());
+                        if ( debug ) {
+                            logger.info("Adding haplotype " + h.getCigar() + " from graph with kmer " + graph.getKmerSize());
+                        }
                     }
                 }
             }
@@ -237,7 +220,7 @@ public final class ReadThreadingAssembler {
             returnHaplotypes.add(refHaplotype);
         }
 
-        if (failedCigars != 0) {
+        if (failedCigars.intValue() != 0) {
             logger.debug(String.format("failed to align some haplotypes (%d) back to the reference (loc=%s); these will be ignored.", failedCigars, assemblyResultSet.getPaddedReferenceLoc().toString()));
         }
 
@@ -256,6 +239,29 @@ public final class ReadThreadingAssembler {
         return new ArrayList<>(returnHaplotypes);
 
     }
+
+    // calculate a haplotype's cigar, and return it if it's usable
+    private Optional<Cigar> calculateCigarIfUsable(Haplotype refHaplotype, MutableInt failedCigars, Haplotype h) {
+        final Cigar cigar = CigarUtils.calculateCigar(refHaplotype.getBases(), h.getBases());
+
+        if ( cigar == null ) {
+            failedCigars.increment(); // couldn't produce a meaningful alignment of haplotype to reference, fail quietly
+            return Optional.empty();
+        } else if( cigar.isEmpty() ) {
+            throw new IllegalStateException("Smith-Waterman alignment failure. Cigar = " + cigar + " with reference length " + cigar.getReferenceLength() +
+                    " but expecting reference length of " + refHaplotype.getCigar().getReferenceLength());
+        } else if ( pathIsTooDivergentFromReference(cigar) || cigar.getReferenceLength() < MIN_HAPLOTYPE_REFERENCE_LENGTH ) {
+            // N cigar elements means that a bubble was too divergent from the reference so skip over this path
+            return Optional.empty();
+        } else if( cigar.getReferenceLength() != refHaplotype.getCigar().getReferenceLength() ) { // SW failure
+            throw new IllegalStateException("Smith-Waterman alignment failure. Cigar = " + cigar + " with reference length "
+                    + cigar.getReferenceLength() + " but expecting reference length of " + refHaplotype.getCigar().getReferenceLength()
+                    + " ref = " + refHaplotype + " path " + new String(h.getBases()));
+        }
+
+        return Optional.of(cigar);
+    }
+
     /**
      * We use CigarOperator.N as the signal that an incomplete or too divergent bubble was found during bubble traversal
      * @param c the cigar to test
