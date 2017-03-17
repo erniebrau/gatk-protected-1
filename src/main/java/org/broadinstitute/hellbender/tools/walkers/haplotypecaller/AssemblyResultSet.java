@@ -516,4 +516,6 @@ public final class AssemblyResultSet {
         }
         return variationEvents;
     }
+
+    public boolean containsHaplotype(final Haplotype h) { return haplotypes.contains(h); }
 }

@@ -120,32 +120,17 @@ public final class ReadThreadingAssembler {
         final List<GATKRead> correctedReads = readErrorCorrector == null ? uncorrectedReads
                 : readErrorCorrector.addReadsToKmers(uncorrectedReads).correctReads(uncorrectedReads);
 
-        final AssemblyResultSet resultSet = new AssemblyResultSet(assemblyRegion, fullReferenceWithPadding, refLoc);
         refHaplotype.setGenomeLocation(assemblyRegion.getExtendedSpan());
-        resultSet.add(refHaplotype);
+
 
         final List<AssemblyResult> results = assemble(correctedReads, refHaplotype, givenHaplotypes, header).stream()
                 .filter(result -> result.getStatus() == AssemblyResult.Status.ASSEMBLED_SOME_VARIATION)
                 .collect(Collectors.toList());
 
         results.forEach(r -> sanityCheckReferenceGraph(r.getGraph(), refHaplotype));
-
-        final Map<Haplotype, AssemblyResult> returnHaplotypes = findBestPaths(refHaplotype, results);
-
-        for (final Map.Entry<Haplotype, AssemblyResult> entry : returnHaplotypes.entrySet()) {
-            final Haplotype haplotype = entry.getKey();
-            final AssemblyResult result = entry.getValue();
-            if (result == null) {   // the ref haplotype will not be associated with any AssemblyResult
-                resultSet.add(haplotype);
-            } else {
-                resultSet.add(haplotype, result);
-            }
-        }
-
-        // print the graphs if the appropriate debug option has been turned on
         if ( graphOutputPath != null ) { printGraphs(results); }
 
-        return resultSet;
+        return findBestPaths(refHaplotype, results, assemblyRegion, fullReferenceWithPadding, refLoc);
     }
 
     /**
@@ -179,10 +164,10 @@ public final class ReadThreadingAssembler {
     }
 
     // return Map of good haplotypes and the AssemblyResult (null for the ref haplotype) from which they came
-    private Map<Haplotype, AssemblyResult> findBestPaths(final Haplotype refHaplotype,
-                                                         final List<AssemblyResult> assemblyResults) {
-        // add the reference haplotype separately from all the others to ensure that it is present in the list of haplotypes
-        final Map<Haplotype, AssemblyResult> returnHaplotypes = new LinkedHashMap<>();
+    private AssemblyResultSet findBestPaths(final Haplotype refHaplotype, final List<AssemblyResult> assemblyResults,
+                                            final AssemblyRegion assemblyRegion, final byte[] fullReferenceWithPadding, final SimpleInterval refLoc) {
+        final AssemblyResultSet resultSet = new AssemblyResultSet(assemblyRegion, fullReferenceWithPadding, refLoc);
+        resultSet.add(refHaplotype);
 
         final int activeRegionStart = refHaplotype.getAlignmentStartHapwrtRef();
         final Collection<KBestHaplotypeFinder> finders = new ArrayList<>(assemblyResults.size());
@@ -197,7 +182,9 @@ public final class ReadThreadingAssembler {
             while (bestHaplotypes.hasNext()) {
                 final KBestHaplotype kBestHaplotype = bestHaplotypes.next();
                 final Haplotype h = kBestHaplotype.haplotype();
-                if( returnHaplotypes.containsKey(h) ) {
+
+                //TODO: is this check necessary?
+                if( resultSet.containsHaplotype(h) ) {
                     continue;
                 }
                 final Optional<Cigar> cigar = calculateCigarIfUsable(refHaplotype, failedCigars, h);
@@ -205,24 +192,13 @@ public final class ReadThreadingAssembler {
                     h.setCigar(cigar.get());
                     h.setAlignmentStartHapwrtRef(activeRegionStart);
                     h.setGenomeLocation(refHaplotype.getGenomeLocation());
-                    returnHaplotypes.put(h, result);
+                    resultSet.add(h, result);
 
                     if ( debug ) {
                         logger.info("Adding haplotype " + h.getCigar() + " from graph with kmer " + graph.getKmerSize());
                     }
                 }
-
             }
-        }
-
-        // If the ref haplotype is missing, add it and set its score as the first non-NaN score from any finder
-        if (!returnHaplotypes.containsKey(refHaplotype)) {
-            final double refScore = finders.stream()
-                    .mapToDouble(f -> f.score(refHaplotype))
-                    .filter(x -> !Double.isNaN(x))
-                    .findFirst().orElseGet(() -> Double.NaN);
-            refHaplotype.setScore(refScore);
-            returnHaplotypes.put(refHaplotype, null);
         }
 
         if (failedCigars.intValue() != 0) {
@@ -230,16 +206,16 @@ public final class ReadThreadingAssembler {
         }
 
         if ( debug ) {
-            final int numHaplotypes = returnHaplotypes.size();
+            final int numHaplotypes = resultSet.getHaplotypeCount();
             final String message = numHaplotypes == 1 ? "Found only the reference haplotype in the assembly graph."
                     : "Found " + numHaplotypes + " candidate haplotypes in the assembly graph.";
             logger.info(message);
-            returnHaplotypes.keySet().forEach(h -> logger.info( h.toString()));
-            returnHaplotypes.keySet().forEach(h -> logger.info( "> Cigar = " + h.getCigar() + " : " + h.getCigar().getReferenceLength() + " score " + h.getScore() + " ref " + h.isReference()));
+            final List<Haplotype> haplotypeList = resultSet.getHaplotypeList();
+            haplotypeList.forEach(h -> logger.info( h.toString()));
+            haplotypeList.forEach(h -> logger.info( "> Cigar = " + h.getCigar() + " : " + h.getCigar().getReferenceLength() + " score " + h.getScore() + " ref " + h.isReference()));
         }
 
-        return returnHaplotypes;
-
+        return resultSet;
     }
 
     // calculate a haplotype's cigar, and return it if it's usable
