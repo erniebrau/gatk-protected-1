@@ -26,6 +26,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.util.*;
+import java.util.stream.Collectors;
 
 public final class ReadThreadingAssembler {
     private static final Logger logger = LogManager.getLogger(ReadThreadingAssembler.class);
@@ -119,29 +120,19 @@ public final class ReadThreadingAssembler {
         final List<GATKRead> correctedReads = readErrorCorrector == null ? uncorrectedReads
                 : readErrorCorrector.addReadsToKmers(uncorrectedReads).correctReads(uncorrectedReads);
 
-        final List<SeqGraph> nonRefGraphs = new LinkedList<>();
         final AssemblyResultSet resultSet = new AssemblyResultSet(assemblyRegion, fullReferenceWithPadding, refLoc);
         refHaplotype.setGenomeLocation(assemblyRegion.getExtendedSpan());
         resultSet.add(refHaplotype);
-        final Map<SeqGraph,AssemblyResult> assemblyResultByGraph = new HashMap<>();
 
-        
-        // create the graphs by calling our subclass assemble method
-        for ( final AssemblyResult result : assemble(correctedReads, refHaplotype, givenHaplotypes, header) ) {
-            if ( result.getStatus() == AssemblyResult.Status.ASSEMBLED_SOME_VARIATION ) {
-                // do some QC on the graph
-                sanityCheckReferenceGraph(result.getGraph(), refHaplotype);
-                // add it to graphs with meaningful non-reference features
-                assemblyResultByGraph.put(result.getGraph(),result);
-                nonRefGraphs.add(result.getGraph());
-            }
+        final List<AssemblyResult> results = assemble(correctedReads, refHaplotype, givenHaplotypes, header).stream()
+                .filter(result -> result.getStatus() == AssemblyResult.Status.ASSEMBLED_SOME_VARIATION)
+                .collect(Collectors.toList());
 
-        }
-
-        findBestPaths(nonRefGraphs, refHaplotype, refLoc, assemblyRegion.getExtendedSpan(), assemblyResultByGraph, resultSet);
+        results.forEach(r -> sanityCheckReferenceGraph(r.getGraph(), refHaplotype));
+        findBestPaths(refHaplotype, results, resultSet);
 
         // print the graphs if the appropriate debug option has been turned on
-        if ( graphOutputPath != null ) { printGraphs(nonRefGraphs); }
+        if ( graphOutputPath != null ) { printGraphs(results); }
 
         return resultSet;
     }
@@ -160,33 +151,33 @@ public final class ReadThreadingAssembler {
         Utils.nonNull(givenHaplotypes, "given haplotypes cannot be null");
         Utils.nonNull(activeRegionWindow, "active region window cannot be null");
         Utils.validateArg(activeRegionWindow.size() == refHaplotype.length(), "inconsistent reference haplotype and active region window");
+        givenHaplotypes.forEach(vc -> Utils.validateArg(GATKVariantContextUtils.overlapsRegion(vc, activeRegionWindow), " some variant provided does not overlap with active region window"));
 
         final Set<Haplotype> returnHaplotypes = new LinkedHashSet<>();
         final int activeRegionStart = refHaplotype.getAlignmentStartHapwrtRef();
 
-        for( final VariantContext compVC : givenHaplotypes ) {
-            Utils.validateArg(GATKVariantContextUtils.overlapsRegion(compVC, activeRegionWindow), " some variant provided does not overlap with active region window");
-            for( final Allele compAltAllele : compVC.getAlternateAlleles() ) {
-                final Haplotype insertedRefHaplotype = refHaplotype.insertAllele(compVC.getReference(), compAltAllele, activeRegionStart + compVC.getStart() - activeRegionWindow.getStart(), compVC.getStart());
-                if( insertedRefHaplotype != null ) { // can be null if the requested allele can't be inserted into the haplotype
-                    returnHaplotypes.add(insertedRefHaplotype);
-                }
-            }
+        for( final VariantContext vc : givenHaplotypes ) {
+            final int refInsertLocation = activeRegionStart + vc.getStart() - activeRegionWindow.getStart();
+            vc.getAlternateAlleles().stream()
+                    .map(a -> refHaplotype.insertAllele(vc.getReference(), a, refInsertLocation, vc.getStart()))
+                    .filter(Objects::nonNull)
+                    .forEach(returnHaplotypes::add);
         }
 
         return new ArrayList<>(returnHaplotypes);
     }
 
-    private List<Haplotype> findBestPaths(final Collection<SeqGraph> graphs, final Haplotype refHaplotype, final SimpleInterval refLoc, final SimpleInterval activeRegionWindow,
-                                            final Map<SeqGraph,AssemblyResult> assemblyResultByGraph, final AssemblyResultSet assemblyResultSet) {
+    private List<Haplotype> findBestPaths(final Haplotype refHaplotype,
+                                          final List<AssemblyResult> assemblyResults, final AssemblyResultSet assemblyResultSet) {
         // add the reference haplotype separately from all the others to ensure that it is present in the list of haplotypes
         final Set<Haplotype> returnHaplotypes = new LinkedHashSet<>();
 
         final int activeRegionStart = refHaplotype.getAlignmentStartHapwrtRef();
-        final Collection<KBestHaplotypeFinder> finders = new ArrayList<>(graphs.size());
+        final Collection<KBestHaplotypeFinder> finders = new ArrayList<>(assemblyResults.size());
         int failedCigars = 0;
 
-        for( final SeqGraph graph : graphs ) {
+        for( final AssemblyResult result : assemblyResults ) {
+            final SeqGraph graph = result.getGraph();
             final SeqVertex source = graph.getReferenceSourceVertex();
             final SeqVertex sink = graph.getReferenceSinkVertex();
             Utils.validateArg( source != null && sink != null, () -> "Both source and sink cannot be null but got " + source + " and sink " + sink + " for graph " + graph);
@@ -217,9 +208,11 @@ public final class ReadThreadingAssembler {
 
                     h.setCigar(cigar);
                     h.setAlignmentStartHapwrtRef(activeRegionStart);
-                    h.setGenomeLocation(activeRegionWindow);
+                    h.setGenomeLocation(assemblyResultSet.getRegionForGenotyping().getExtendedSpan());
                     returnHaplotypes.add(h);
-                    assemblyResultSet.add(h, assemblyResultByGraph.get(graph));
+
+                    //TODO: ugly buried side-effect
+                    assemblyResultSet.add(h, result);
 
                     if ( debug ) {
                         logger.info("Adding haplotype " + h.getCigar() + " from graph with kmer " + graph.getKmerSize());
@@ -245,7 +238,7 @@ public final class ReadThreadingAssembler {
         }
 
         if (failedCigars != 0) {
-            logger.debug(String.format("failed to align some haplotypes (%d) back to the reference (loc=%s); these will be ignored.", failedCigars, refLoc.toString()));
+            logger.debug(String.format("failed to align some haplotypes (%d) back to the reference (loc=%s); these will be ignored.", failedCigars, assemblyResultSet.getPaddedReferenceLoc().toString()));
         }
 
         if ( debug ) {
@@ -508,15 +501,16 @@ public final class ReadThreadingAssembler {
     }
 
     /**
-     * Print the generated graphs to the graphWriter
-     * @param graphs a non-null list of graphs to print out
+     * Print the generated results to the graphWriter
+     * @param results a non-null list of assembly results
      */
-    private void printGraphs(final List<SeqGraph> graphs) {
+    private void printGraphs(final List<AssemblyResult> results) {
         final int writeFirstGraphWithSizeSmallerThan = 50;
 
         try ( final PrintStream graphWriter = new PrintStream(graphOutputPath) ) {
             graphWriter.println("digraph assemblyGraphs {");
-            for ( final SeqGraph graph : graphs ) {
+            for ( final AssemblyResult result : results ) {
+                final SeqGraph graph = result.getGraph();
                 if ( debugGraphTransformations && graph.getKmerSize() >= writeFirstGraphWithSizeSmallerThan ) {
                     logger.info("Skipping writing of graph with kmersize " + graph.getKmerSize());
                     continue;
