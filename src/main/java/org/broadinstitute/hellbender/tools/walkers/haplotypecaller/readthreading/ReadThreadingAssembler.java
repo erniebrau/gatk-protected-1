@@ -5,7 +5,6 @@ import htsjdk.samtools.Cigar;
 import htsjdk.samtools.CigarOperator;
 import htsjdk.samtools.SAMFileHeader;
 import htsjdk.variant.variantcontext.VariantContext;
-import org.apache.commons.lang.mutable.MutableInt;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.broadinstitute.hellbender.engine.AssemblyRegion;
@@ -27,6 +26,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 public final class ReadThreadingAssembler {
     private static final Logger logger = LogManager.getLogger(ReadThreadingAssembler.class);
@@ -122,7 +122,6 @@ public final class ReadThreadingAssembler {
 
         refHaplotype.setGenomeLocation(assemblyRegion.getExtendedSpan());
 
-
         final List<AssemblyResult> results = assemble(correctedReads, refHaplotype, givenHaplotypes, header).stream()
                 .filter(result -> result.getStatus() == AssemblyResult.Status.ASSEMBLED_SOME_VARIATION)
                 .collect(Collectors.toList());
@@ -171,7 +170,6 @@ public final class ReadThreadingAssembler {
 
         final int activeRegionStart = refHaplotype.getAlignmentStartHapwrtRef();
         final Collection<KBestHaplotypeFinder> finders = new ArrayList<>(assemblyResults.size());
-        final MutableInt failedCigars = new MutableInt(0);
 
         for( final AssemblyResult result : assemblyResults ) {
             final SeqGraph graph = result.getGraph();
@@ -187,7 +185,7 @@ public final class ReadThreadingAssembler {
                 if( resultSet.containsHaplotype(h) ) {
                     continue;
                 }
-                final Optional<Cigar> cigar = calculateCigarIfUsable(refHaplotype, failedCigars, h);
+                final Optional<Cigar> cigar = calculateCigarIfUsable(refHaplotype, h);
                 if (cigar.isPresent()) {
                     h.setCigar(cigar.get());
                     h.setAlignmentStartHapwrtRef(activeRegionStart);
@@ -199,10 +197,6 @@ public final class ReadThreadingAssembler {
                     }
                 }
             }
-        }
-
-        if (failedCigars.intValue() != 0) {
-            logger.debug(String.format("failed to align some haplotypes (%d) back to the reference (loc=%s); these will be ignored.", failedCigars, refHaplotype.getGenomeLocation().toString()));
         }
 
         if ( debug ) {
@@ -219,11 +213,11 @@ public final class ReadThreadingAssembler {
     }
 
     // calculate a haplotype's cigar, and return it if it's usable
-    private Optional<Cigar> calculateCigarIfUsable(Haplotype refHaplotype, MutableInt failedCigars, Haplotype h) {
+    private Optional<Cigar> calculateCigarIfUsable(Haplotype refHaplotype, Haplotype h) {
         final Cigar cigar = CigarUtils.calculateCigar(refHaplotype.getBases(), h.getBases());
 
         if ( cigar == null ) {
-            failedCigars.increment(); // couldn't produce a meaningful alignment of haplotype to reference, fail quietly
+            logger.debug(String.format("Failed to align a haplotype to the reference at %s.  This haplotype will be ignored", refHaplotype.getGenomeLocation()));
             return Optional.empty();
         } else if( cigar.isEmpty() ) {
             throw new IllegalStateException("Smith-Waterman alignment failure. Cigar = " + cigar + " with reference length " + cigar.getReferenceLength() +
@@ -255,8 +249,8 @@ public final class ReadThreadingAssembler {
      * @param fileName the name to give the graph file
      */
     private void printDebugGraphTransform(final BaseGraph<?,?> graph, final String fileName) {
-        File outputFile = new File(debugGraphOutputPath, fileName);
         if ( debugGraphTransformations ) {
+            final File outputFile = new File(debugGraphOutputPath, fileName);
             if ( PRINT_FULL_GRAPH_FOR_DEBUGGING ) {
                 graph.printGraph(outputFile, pruneFactor);
             } else {
@@ -311,15 +305,12 @@ public final class ReadThreadingAssembler {
     private static <T extends BaseVertex, E extends BaseEdge> void sanityCheckReferenceGraph(final BaseGraph<T,E> graph, final Haplotype refHaplotype) {
         if( graph.getReferenceSourceVertex() == null ) {
             throw new IllegalStateException("All reference graphs must have a reference source vertex.");
-        }
-        if( graph.getReferenceSinkVertex() == null ) {
+        } else if( graph.getReferenceSinkVertex() == null ) {
             throw new IllegalStateException("All reference graphs must have a reference sink vertex.");
-        }
-        if( !Arrays.equals(graph.getReferenceBytes(graph.getReferenceSourceVertex(), graph.getReferenceSinkVertex(), true, true), refHaplotype.getBases()) ) {
+        } else if( !Arrays.equals(graph.getReferenceBytes(graph.getReferenceSourceVertex(), graph.getReferenceSinkVertex(), true, true), refHaplotype.getBases()) ) {
             throw new IllegalStateException("Mismatch between the reference haplotype and the reference assembly graph path. for graph " + graph +
                     " graph = " + new String(graph.getReferenceBytes(graph.getReferenceSourceVertex(), graph.getReferenceSinkVertex(), true, true)) +
-                    " haplotype = " + new String(refHaplotype.getBases())
-            );
+                    " haplotype = " + new String(refHaplotype.getBases()));
         }
     }
 
@@ -396,29 +387,24 @@ public final class ReadThreadingAssembler {
             return null;
         }
 
-        final ReadThreadingGraph rtgraph = new ReadThreadingGraph(kmerSize, debugGraphTransformations, MIN_BASE_QUALITY_TO_USE_IN_ASSEMBLY, numPruningSamples);
+        final ReadThreadingGraph rtGraph = new ReadThreadingGraph(kmerSize, debugGraphTransformations, MIN_BASE_QUALITY_TO_USE_IN_ASSEMBLY, numPruningSamples);
 
-        rtgraph.setThreadingStartOnlyAtExistingVertex(!recoverDanglingBranches);
+        rtGraph.setThreadingStartOnlyAtExistingVertex(!recoverDanglingBranches);
 
         // add the reference sequence to the graph
-        rtgraph.addSequence("ref", refHaplotype.getBases(), true);
+        rtGraph.addSequence("ref", refHaplotype.getBases(), true);
 
         // add the artificial GGA haplotypes to the graph
         int hapCount = 0;
         for ( final Haplotype h : activeAlleleHaplotypes ) {
-            rtgraph.addSequence("activeAllele" + hapCount++, h.getBases(), GGA_MODE_ARTIFICIAL_COUNTS, false);
+            rtGraph.addSequence("activeAllele" + hapCount++, h.getBases(), GGA_MODE_ARTIFICIAL_COUNTS, false);
         }
 
-        // Next pull kmers out of every read and throw them on the graph
-        for( final GATKRead read : reads ) {
-            rtgraph.addRead(read, header);
-        }
-
-        // actually build the read threading graph
-        rtgraph.buildGraphIfNecessary();
+        reads.forEach(read -> rtGraph.addRead(read, header) );
+        rtGraph.buildGraphIfNecessary();
 
         // sanity check: make sure there are no cycles in the graph
-        if ( rtgraph.hasCycles() ) {
+        if ( rtGraph.hasCycles() ) {
             if ( debug ) {
                 logger.info("Not using kmer size of " + kmerSize + " in read threading assembler because it contains a cycle");
             }
@@ -426,14 +412,14 @@ public final class ReadThreadingAssembler {
         }
 
         // sanity check: make sure the graph had enough complexity with the given kmer
-        if ( ! allowLowComplexityGraphs && rtgraph.isLowComplexity() ) {
+        if ( ! allowLowComplexityGraphs && rtGraph.isLowComplexity() ) {
             if ( debug ) {
                 logger.info("Not using kmer size of " + kmerSize + " in read threading assembler because it does not produce a graph with enough complexity");
             }
             return null;
         }
 
-        return getAssemblyResult(refHaplotype, kmerSize, rtgraph);
+        return getAssemblyResult(refHaplotype, kmerSize, rtGraph);
     }
 
     private AssemblyResult getAssemblyResult(final Haplotype refHaplotype, final int kmerSize, final ReadThreadingGraph rtgraph) {
