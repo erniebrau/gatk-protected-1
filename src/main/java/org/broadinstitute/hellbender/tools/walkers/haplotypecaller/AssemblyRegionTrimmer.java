@@ -401,12 +401,9 @@ public final class AssemblyRegionTrimmer {
      *                                        not overlapping with {@code originalRegion} are simply ignored.
      * @return never {@code null}.
      */
-    public Result trim(final AssemblyRegion originalRegion,
-                       final SortedSet<VariantContext> allVariantsWithinExtendedRegion) {
+    public Result trim(final AssemblyRegion originalRegion, final SortedSet<VariantContext> allVariantsWithinExtendedRegion) {
 
-
-        if ( allVariantsWithinExtendedRegion.isEmpty() ) // no variants,
-        {
+        if ( allVariantsWithinExtendedRegion.isEmpty() ) {
             return Result.noVariation(emitReferenceConfidence, originalRegion, assemblyRegionTrimmerArgs.snpPadding, usableExtension);
         }
 
@@ -415,10 +412,9 @@ public final class AssemblyRegionTrimmer {
         boolean foundNonSnp = false;
         SimpleInterval variantSpan = null;
         for ( final VariantContext vc : allVariantsWithinExtendedRegion ) {
-            final SimpleInterval vcLoc = new SimpleInterval(vc);
-            if ( originalRegionRange.overlaps(vcLoc) ) {
+            if ( originalRegionRange.overlaps(vc) ) {
                 foundNonSnp = foundNonSnp || ! vc.isSNP();
-                variantSpan = variantSpan == null ? vcLoc : variantSpan.spanWith(vcLoc);
+                variantSpan = variantSpan == null ? new SimpleInterval(vc) : variantSpan.spanWith(vc);
                 withinActiveRegion.add(vc);
             }
         }
@@ -473,14 +469,10 @@ public final class AssemblyRegionTrimmer {
 
         final boolean preTrimmingRequired = targetStart < finalStart;
         final boolean postTrimmingRequired = targetStop > finalStop;
-        if (preTrimmingRequired) {
-            final String contig = targetRegionRange.getContig();
-            return postTrimmingRequired ? Pair.of(new SimpleInterval(contig, targetStart, finalStart - 1), new SimpleInterval(contig, finalStop + 1, targetStop)) :
-                                          Pair.of(new SimpleInterval(contig, targetStart, finalStart - 1), null);
-        } else if (postTrimmingRequired) {
-            return Pair.of(null, new SimpleInterval(targetRegionRange.getContig(), finalStop + 1, targetStop));
-        } else {
-            return Pair.of(null, null);
-        }
+
+        final String contig = targetRegionRange.getContig();
+        final SimpleInterval postTrimmingInterval = postTrimmingRequired ? new SimpleInterval(contig, finalStop + 1, targetStop) : null;
+        final SimpleInterval preTrimmingInterval = preTrimmingRequired ? new SimpleInterval(contig, targetStart, finalStart - 1) : null;
+        return Pair.of(preTrimmingInterval, postTrimmingInterval);
     }
 }
