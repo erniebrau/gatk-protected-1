@@ -188,23 +188,16 @@ public final class AssemblyResultSet {
      * @throws NullPointerException if {@code pw} is {@code null}.
      */
     private void debugDump(final PrintWriter pw) {
-        if (getHaplotypeList().isEmpty()) {
+        if (haplotypes.isEmpty()) {
             return;
         }
         pw.println("Active Region " + regionForGenotyping.getSpan());
         pw.println("Extended Act Region " + getRegionForGenotyping().getExtendedSpan());
         pw.println("Ref haplotype coords " + getHaplotypeList().get(0).getGenomeLocation());
         pw.println("Haplotype count " + haplotypes.size());
-        final Map<Integer,Integer> kmerSizeToCount = new HashMap<>();
+        final Map<Integer, Long> kmerSizeToCount = assemblyResultByHaplotype.values().stream()
+                .collect(Collectors.groupingBy(as -> as.getGraph().getKmerSize(), Collectors.counting()));
 
-        for (final AssemblyResult as : assemblyResultByHaplotype.values()) {
-            final int kmerSize = as.getGraph().getKmerSize();
-            if (kmerSizeToCount.containsKey(kmerSize)) {
-                kmerSizeToCount.put(kmerSize,kmerSizeToCount.get(kmerSize) + 1);
-            } else {
-                kmerSizeToCount.put(kmerSize,1);
-            }
-        }
         pw.println("Kmer sizes count " + kmerSizeToCount.entrySet().size());
         final Integer[] kmerSizes = kmerSizeToCount.keySet().toArray(new Integer[kmerSizeToCount.size()]);
         Arrays.sort(kmerSizes);
