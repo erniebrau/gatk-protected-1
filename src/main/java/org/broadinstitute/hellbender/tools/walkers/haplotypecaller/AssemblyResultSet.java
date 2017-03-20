@@ -15,6 +15,7 @@ import org.broadinstitute.hellbender.utils.haplotype.Haplotype;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Collection of read assembly using several kmerSizes.
@@ -118,16 +119,16 @@ public final class AssemblyResultSet {
 
         // resort the trimmed haplotypes.
         Collections.sort(trimmedHaplotypes, Haplotype.SIZE_AND_BASE_ORDER);
-        final Map<Haplotype, Haplotype> sortedOriginalByTrimmedHaplotypes = mapOriginalToTrimmed(originalByTrimmedHaplotypes, trimmedHaplotypes);
+        final Map<Haplotype, Haplotype> sortedOriginalByTrimmedHaplotypes =
+                trimmedHaplotypes.stream().collect(Collectors.toMap(h -> h, originalByTrimmedHaplotypes::get, (h1, h2) -> h2, LinkedHashMap::new));
+
 
         if ( debug ) {
             logger.info("Trimmed region to " + trimmedAssemblyRegion.getSpan() + " size " +
                     trimmedAssemblyRegion.getSpan().size() + " reduced number of haplotypes from " +
                     haplotypeList.size() + " to only " + trimmedHaplotypes.size());
 
-            for (final Haplotype remaining : trimmedHaplotypes) {
-                logger.info("Remains: " + remaining + " cigar " + remaining.getCigar());
-            }
+            trimmedHaplotypes.forEach(remaining -> logger.info("Remains: " + remaining + " cigar " + remaining.getCigar()));
         }
         return sortedOriginalByTrimmedHaplotypes;
     }
@@ -156,14 +157,6 @@ public final class AssemblyResultSet {
             }
         }
         return originalByTrimmedHaplotypes;
-    }
-
-    private static Map<Haplotype, Haplotype> mapOriginalToTrimmed(final Map<Haplotype, Haplotype> originalByTrimmedHaplotypes, final List<Haplotype> trimmedHaplotypes) {
-        final Map<Haplotype,Haplotype> sortedOriginalByTrimmedHaplotypes = new LinkedHashMap<>(trimmedHaplotypes.size());
-        for (final Haplotype trimmed : trimmedHaplotypes) {
-            sortedOriginalByTrimmedHaplotypes.put(trimmed, originalByTrimmedHaplotypes.get(trimmed));
-        }
-        return sortedOriginalByTrimmedHaplotypes;
     }
 
     /**
@@ -204,8 +197,7 @@ public final class AssemblyResultSet {
         pw.println("Haplotype count " + haplotypes.size());
         final Map<Integer,Integer> kmerSizeToCount = new HashMap<>();
 
-        for (final Map.Entry<Haplotype,AssemblyResult> e : assemblyResultByHaplotype.entrySet()) {
-            final AssemblyResult as = e.getValue();
+        for (final AssemblyResult as : assemblyResultByHaplotype.values()) {
             final int kmerSize = as.getGraph().getKmerSize();
             if (kmerSizeToCount.containsKey(kmerSize)) {
                 kmerSizeToCount.put(kmerSize,kmerSizeToCount.get(kmerSize) + 1);
@@ -388,7 +380,7 @@ public final class AssemblyResultSet {
      * @return never {@code null}, but perhaps a empty list if no haplotype was generated during assembly.
      */
     public List<Haplotype> getHaplotypeList() {
-        return Arrays.asList(haplotypes.toArray(new Haplotype[haplotypes.size()]));
+        return new ArrayList<>(haplotypes);
     }
 
     /**
@@ -437,10 +429,7 @@ public final class AssemblyResultSet {
      */
     public ReadThreadingGraph getUniqueReadThreadingGraph(final int kmerSize) {
         final AssemblyResult assemblyResult = assemblyResultByKmerSize.get(kmerSize);
-        if (assemblyResult == null) {
-            return null;
-        }
-        return assemblyResult.getThreadingGraph();
+        return assemblyResult == null ? null : assemblyResult.getThreadingGraph();
     }
 
     /**
@@ -463,14 +452,8 @@ public final class AssemblyResultSet {
         final StringWriter sw = new StringWriter();
         final PrintWriter pw = new PrintWriter(sw);
         debugDump(pw);
-        final String str = sw.toString();
-        final String[] lines = str.split("\n");
-        for (final String line : lines) {
-            if (line.isEmpty()) {
-                continue;
-            }
-            logger.debug(line);
-        }
+        final String[] lines = sw.toString().split("\n");
+        Arrays.stream(lines).filter(line -> !line.isEmpty()).forEach(logger::debug);
     }
 
     /**
@@ -489,13 +472,12 @@ public final class AssemblyResultSet {
      * @throws IllegalStateException if there is already a reference haplotype.
      */
     private void updateReferenceHaplotype(final Haplotype newHaplotype) {
-        if (!newHaplotype.isReference()) {
-            return;
-        }
-        if (refHaplotype == null) {
-            refHaplotype = newHaplotype;
-        } else {// assumes that we have checked wether the haplotype is already in the collection and so is no need to check equality.
-            throw new IllegalStateException("the assembly-result-set already have a reference haplotype that is different");
+        if (newHaplotype.isReference()) {
+            if (refHaplotype == null) {
+                refHaplotype = newHaplotype;
+            } else {// assumes that we have checked wether the haplotype is already in the collection and so is no need to check equality.
+                throw new IllegalStateException("the assembly-result-set already have a reference haplotype that is different");
+            }
         }
     }
 
