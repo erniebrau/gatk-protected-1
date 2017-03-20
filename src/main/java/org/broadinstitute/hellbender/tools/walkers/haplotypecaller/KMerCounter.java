@@ -4,6 +4,7 @@ import com.google.common.annotations.VisibleForTesting;
 import org.broadinstitute.hellbender.utils.Utils;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * generic utility class that counts kmers
@@ -53,13 +54,10 @@ public final class KMerCounter {
      * @return a non-null collection of kmers
      */
     public Collection<Kmer> getKmersWithCountsAtLeast(final int minCount) {
-        final List<Kmer> result = new LinkedList<>();
-        for ( final CountedKmer countedKmer : getCountedKmers() ) {
-            if ( countedKmer.count >= minCount ) {
-                result.add(countedKmer.kmer);
-            }
-        }
-        return result;
+        return getCountedKmers().stream()
+                .filter(ck -> ck.count >= minCount)
+                .map(ck -> ck.kmer)
+                .collect(Collectors.toList());
     }
 
     /**
@@ -89,10 +87,7 @@ public final class KMerCounter {
 
     @Override
     public String toString() {
-        final StringBuilder b = new StringBuilder("KMerCounter{");
-        b.append("counting ").append(countsByKMer.size()).append(" distinct kmers");
-        b.append("\n}");
-        return b.toString();
+        return String.format("KMerCounter{counting %d distinct kmers\n}", countsByKMer.size());
     }
 
     static final class CountedKmer implements Comparable<CountedKmer> {
@@ -113,10 +108,7 @@ public final class KMerCounter {
 
         @Override
         public String toString() {
-            return "CountedKmer{" +
-                    "kmer='" + kmer + '\'' +
-                    ", count=" + count +
-                    '}';
+            return String.format("CountedKmer{kmer=%s, count=%d}", kmer, count);
         }
 
         @Override
