@@ -27,8 +27,8 @@ import "mutect2.wdl" as m2
 
 
 task Concordance {
-  File gatk4_jar
-  File? gatk4_jar_override
+  String gatk4_jar
+  String? gatk4_jar_override
   File? intervals
   File truth_vcf
   File truth_vcf_idx

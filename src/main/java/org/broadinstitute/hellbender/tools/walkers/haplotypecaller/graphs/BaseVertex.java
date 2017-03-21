@@ -26,7 +26,6 @@ public class BaseVertex {
         Utils.nonNull(sequence, "Sequence cannot be null");
         this.sequence = sequence;
         cachedHashCode = Arrays.hashCode(sequence);
-
     }
 
     /**
@@ -69,11 +68,7 @@ public class BaseVertex {
         }
 
         final BaseVertex that = (BaseVertex) o;
-        if (hashCode() != that.hashCode()){
-            return false;
-        }
-
-        return seqEquals(that);
+        return hashCode() == that.hashCode() && seqEquals(that);
     }
 
     /**
@@ -139,8 +134,7 @@ public class BaseVertex {
      * @param info the new info value.
      */
     public final void setAdditionalInfo(final String info) {
-        Utils.nonNull(info, "info cannot be null");
-        additionalInfo = info;
+        additionalInfo = Utils.nonNull(info, "info cannot be null");
     }
 
     /**
