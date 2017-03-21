@@ -22,7 +22,7 @@ public class BaseEdge {
      * @param multiplicity the number of observations of this edge
      */
     public BaseEdge(final boolean isRef, final int multiplicity) {
-        Utils.validateArg( multiplicity >= 0, () -> "multiplicity must be >= 0 but got " + multiplicity);
+        ParamUtils.isPositiveOrZero(multiplicity, "Multiplicity may not be negative.");
         this.multiplicity = multiplicity;
         this.isRef = isRef;
     }
@@ -55,8 +55,7 @@ public class BaseEdge {
      * @param incr the change in this multiplicity, must be >= 0
      */
     public void incMultiplicity(final int incr) {
-        Utils.validateArg( incr >= 0, () -> "incr must be >= 0 but got " + incr);
-        multiplicity += incr;
+        multiplicity += ParamUtils.isPositiveOrZero(incr, "Increment may not be negative.");
     }
 
     /**
@@ -73,8 +72,7 @@ public class BaseEdge {
      * @param value an integer >= 0
      */
     public final void setMultiplicity( final int value ) {
-        ParamUtils.isPositiveOrZero(multiplicity, "multiplicity must be >= 0");
-        multiplicity = value;
+        multiplicity = ParamUtils.isPositiveOrZero(value, "Multiplicity may not be negative.");
     }
 
     /**
@@ -124,7 +122,7 @@ public class BaseEdge {
      */
     public static BaseEdge makeOREdge(final Collection<BaseEdge> edges, final int multiplicity) {
         Utils.nonNull(edges);
-        final boolean anyRef = edges.stream().anyMatch(e -> e.isRef());
+        final boolean anyRef = edges.stream().anyMatch(BaseEdge::isRef);
         return new BaseEdge(anyRef, multiplicity);
     }
 
