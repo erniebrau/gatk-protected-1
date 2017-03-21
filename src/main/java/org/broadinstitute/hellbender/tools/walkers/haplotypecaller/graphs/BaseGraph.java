@@ -4,6 +4,7 @@ import com.google.common.collect.Sets;
 import org.apache.commons.lang3.ArrayUtils;
 import org.broadinstitute.hellbender.exceptions.UserException;
 import org.broadinstitute.hellbender.utils.Utils;
+import org.broadinstitute.hellbender.utils.param.ParamUtils;
 import org.jgrapht.EdgeFactory;
 import org.jgrapht.alg.CycleDetector;
 import org.jgrapht.graph.DefaultDirectedGraph;
@@ -29,8 +30,7 @@ public abstract class BaseGraph<V extends BaseVertex, E extends BaseEdge> extend
      */
     protected BaseGraph(final int kmerSize, final EdgeFactory<V,E> edgeFactory) {
         super(edgeFactory);
-        Utils.validateArg(kmerSize > 0, () -> "kmerSize must be > 0 but got " + kmerSize);
-        this.kmerSize = kmerSize;
+        this.kmerSize = ParamUtils.isPositive(kmerSize, "kmerSize must be > 0");
     }
 
     /**
@@ -48,12 +48,8 @@ public abstract class BaseGraph<V extends BaseVertex, E extends BaseEdge> extend
     public final boolean isReferenceNode( final V v ) {
         Utils.nonNull(v, "Attempting to test a null vertex.");
 
-        if (edgesOf(v).stream().anyMatch(e -> e.isRef())){
-            return true;
-        }
-
-        // edge case: if the graph only has one node then it's a ref node, otherwise it's not
-        return vertexSet().size() == 1;
+        // note the edge case: if the graph has only one node then it's a ref node
+        return edgesOf(v).stream().anyMatch(e -> e.isRef()) || vertexSet().size() == 1;
     }
 
     /**
@@ -137,18 +133,10 @@ public abstract class BaseGraph<V extends BaseVertex, E extends BaseEdge> extend
     public final boolean isRefSource( final V v ) {
         Utils.nonNull(v, "Attempting to pull sequence from a null vertex.");
 
-        // confirm that no incoming edges are reference edges
-        if (incomingEdgesOf(v).stream().anyMatch(e -> e.isRef())) {
-            return false;
-        }
-
-        // confirm that there is an outgoing reference edge
-        if (outgoingEdgesOf(v).stream().anyMatch(e -> e.isRef())) {
-            return true;
-        }
-
-        // edge case: if the graph only has one node then it's a ref source, otherwise it's not
-        return vertexSet().size() == 1;
+        // confirm that no incoming edges are reference edges and that there is an outgoing reference edge
+        // note the edge case: if the graph has only one node then it's a ref source
+        return (incomingEdgesOf(v).stream().noneMatch(e -> e.isRef()) && outgoingEdgesOf(v).stream().anyMatch(e -> e.isRef()))
+                || vertexSet().size() == 1;
     }
 
     /**
@@ -158,18 +146,10 @@ public abstract class BaseGraph<V extends BaseVertex, E extends BaseEdge> extend
     public final boolean isRefSink( final V v ) {
         Utils.nonNull(v, "Attempting to pull sequence from a null vertex.");
 
-        // confirm that no outgoing edges are reference edges
-        if (outgoingEdgesOf(v).stream().anyMatch(e -> e.isRef())) {
-            return false;
-        }
-
-        // confirm that there is an incoming reference edge
-        if (incomingEdgesOf(v).stream().anyMatch(e -> e.isRef())) {
-            return true;
-        }
-
-        // edge case: if the graph only has one node then it's a ref sink, otherwise it's not
-        return vertexSet().size() == 1;
+        // confirm that no outgoing edges are reference edges and that there is an incoming reference edge
+        // note the edge case: if the graph has only one node then it's a ref sink
+        return (outgoingEdgesOf(v).stream().noneMatch(e -> e.isRef()) && incomingEdgesOf(v).stream().anyMatch(e -> e.isRef()))
+                || vertexSet().size() == 1;
     }
 
     /**
