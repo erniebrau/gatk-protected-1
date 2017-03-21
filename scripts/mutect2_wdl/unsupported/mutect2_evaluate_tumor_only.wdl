@@ -1,7 +1,4 @@
-# Given trios consisting of: a normal sample, a relatively reliable tumor sample, and a questionable tumor sample
-# run Mutect in tumor-normal mode on the "good" sample, then run it on the "bad" sample, and compare results
-# The idea is to see how well Mutect performs under difficult conditions.  For example, the "good" sample might
-# be from a solid tumor while the "bad" sample might be low-allele-fraction cfDNA
+# Given tumor-normal pairs compare Mutect calls in tumor-only mode to those of tumor-normal mode
 import "mutect2.wdl" as m2
 
 
@@ -40,13 +37,13 @@ task Concordance {
   }
 }
 
-workflow Mutect2Trio {
+workflow Mutect2EvaluateTumorOnly {
 	File gatk4_jar
 	Int scatter_count
-	# trio_list file is a tsv file with the following nine columns in this order.
-	# normal_bam, normal_bam_index, normal_sample_name, good_tumor_bam, good_tumor_bam_index, good_tumor_sample_name, bad_tumor_bam, bad_tumor_bam_index, bad_tumor_sample_name,
-	File trio_list
-	Array[Array[String]] trios = read_tsv(trio_list)
+	# pair_list file is a tsv file with the following six columns in this order.
+	# tumor_bam, tumor_bam_index, tumor_sample_name, normal_bam, normal_bam_index, normal_sample_name
+	File pair_list
+	Array[Array[String]] pairs = read_tsv(pair_list)
 	File intervals
 	File ref_fasta
 	File ref_fasta_index
@@ -65,20 +62,20 @@ workflow Mutect2Trio {
 	Int preemptible_attempts
 	Array[String] artifact_modes
 
-	scatter(trio in trios) {
-		call m2.Mutect2 as GoodTumor {
+	scatter(pair in pairs) {
+		call m2.Mutect2 as TumorNormal {
 			input:
 				gatk4_jar=gatk4_jar,
 				intervals=intervals,
 				ref_fasta=ref_fasta,
 				ref_fasta_index=ref_fasta_index,
 				ref_dict=ref_dict,
-				tumor_bam=trio[3],
-				tumor_bam_index=trio[4],
-				tumor_sample_name=trio[5],
-				normal_bam=trio[0],
-				normal_bam_index=trio[1],
-				normal_sample_name=trio[2],
+				tumor_bam=pair[0],
+				tumor_bam_index=pair[1],
+				tumor_sample_name=pair[2],
+				normal_bam=pair[3],
+				normal_bam_index=pair[4],
+				normal_sample_name=pair[5],
 				pon=pon,
 				pon_index=pon_index,
 				scatter_count=scatter_count,
@@ -96,19 +93,16 @@ workflow Mutect2Trio {
                 artifact_modes = artifact_modes
 		}
 
-		call m2.Mutect2 as BadTumor {
+		call m2.Mutect2 as TumorOnly {
         			input:
         				gatk4_jar=gatk4_jar,
         				intervals=intervals,
         				ref_fasta=ref_fasta,
         				ref_fasta_index=ref_fasta_index,
         				ref_dict=ref_dict,
-        				tumor_bam=trio[6],
-        				tumor_bam_index=trio[7],
-        				tumor_sample_name=trio[8],
-        				normal_bam=trio[0],
-        				normal_bam_index=trio[1],
-        				normal_sample_name=trio[2],
+        				tumor_bam=pair[0],
+        				tumor_bam_index=pair[1],
+        				tumor_sample_name=pair[2],
         				pon=pon,
         				pon_index=pon_index,
         				scatter_count=scatter_count,
@@ -131,10 +125,10 @@ workflow Mutect2Trio {
 		        gatk4_jar = gatk4_jar,
                 gatk4_jar_override = gatk4_jar_override,
                 intervals = intervals,
-                truth_vcf = GoodTumor.filtered_vcf, #note, no orientation bias since it's optional output
-                truth_vcf_idx = GoodTumor.filtered_vcf_index,
-                eval_vcf = BadTumor.filtered_vcf,
-                eval_vcf_idx = BadTumor.filtered_vcf_index,
+                truth_vcf = TumorNormal.filtered_vcf, #note, no orientation bias since it's optional output
+                truth_vcf_idx = TumorNormal.filtered_vcf_index,
+                eval_vcf = TumorNormal.filtered_vcf,
+                eval_vcf_idx = TumorNormal.filtered_vcf_index,
 		}
 	}
 
